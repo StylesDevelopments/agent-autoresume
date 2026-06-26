@@ -100,8 +100,12 @@ log "autoresume $VERSION start (interval=${INTERVAL}s, keep_going=${KEEP_GOING},
 while true; do
   if [[ $first -eq 1 && -n "$PROMPT" ]]; then
     args=(-p "$PROMPT")
-    [[ "$RESUME" == "1" ]] && args=(--continue "${args[@]}")
-    log "Run: claude -p \"<prompt>\"${RESUME:+ (--continue)}"
+    if [[ "$RESUME" == "1" ]]; then
+      args=(--continue "${args[@]}")
+      log "Run: claude --continue -p \"<prompt>\""
+    else
+      log "Run: claude -p \"<prompt>\""
+    fi
   else
     args=(--continue -p "$CONTINUE_PROMPT")
     log "Run: claude --continue (resume)"
