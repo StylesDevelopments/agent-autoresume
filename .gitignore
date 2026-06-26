@@ -1,6 +1,11 @@
 # Local logs / scratch
 autoresume.log
+iterm-limit-watcher.log
 nohup.out
+
+# Python
+__pycache__/
+*.pyc
 
 # macOS
 .DS_Store

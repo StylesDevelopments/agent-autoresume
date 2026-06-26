@@ -12,7 +12,7 @@
 #
 set -uo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # ── Configuration (override any of these via environment variables) ──────────
 INTERVAL="${INTERVAL:-300}"        # secs to wait after a limit hit before resuming

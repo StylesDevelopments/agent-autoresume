@@ -2,103 +2,145 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash-green.svg)](./claude-autoresume.sh)
+[![iTerm2](https://img.shields.io/badge/iTerm2-Python%20API-blueviolet.svg)](./iterm/claude-limit-watcher.py)
 
-**Keep a [Claude Code](https://www.claude.com/product/claude-code) job alive across usage-limit resets.** When Claude Code stops because you hit your 5-hour or weekly limit, this tiny, dependency-free bash wrapper waits and resumes the same session automatically — so a long job picks itself back up the moment your limit lifts, without you sitting there to restart it.
+**Stop babysitting [Claude Code](https://www.claude.com/product/claude-code) usage limits.** When Claude Code hits your 5-hour or weekly limit it just *stops* and waits for you to come back and resubmit — it has no built-in resume. This repo gives you two small, dependency-free tools that wait out the limit and pick the work back up for you.
 
 > Unofficial community tool. Not affiliated with or endorsed by Anthropic.
 
-## The problem
+| Tool | For | You run Claude… |
+|---|---|---|
+| **iTerm2 live watcher** | Your normal **interactive** sessions | exactly as you do now |
+| **Headless wrapper** | **Unattended** one-shot / overnight jobs | via a wrapper command |
 
-Claude Code has no built-in "wait for my limit to reset and carry on" feature ([#36320](https://github.com/anthropics/claude-code/issues/36320), [#35744](https://github.com/anthropics/claude-code/issues/35744)). When you hit a usage limit mid-task, the session hard-stops and you have to come back and restart it by hand. That's fine at your desk — useless for an overnight job.
+Pick whichever matches how you work — or use both.
 
-`claude-autoresume` runs Claude Code headlessly and, on a limit, waits and resumes — indefinitely — until the work is done. Real errors (not limits) still fail fast so a genuine bug doesn't loop forever.
+---
 
-## Install
+## 1. iTerm2 live watcher (recommended for interactive use)
+
+A tiny background daemon (iTerm2's Python API) that watches your terminal sessions. When it sees Claude Code's limit banner —
+
+```
+You've hit your session limit · resets 3:45pm
+You've hit your weekly limit · resets Mon 12:00am
+```
+
+— it parses the reset time, **waits until then**, and types `continue` into that exact session. **You keep launching `claude` exactly as you always do**; the watcher just sits in the background and nudges it on when the limit lifts.
+
+It reads the rendered screen as plain text and sends keystrokes through iTerm2's own API socket — so it needs **no macOS Accessibility or screen-recording permission**, just the iTerm2 Python API.
+
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/iterm/install-iterm.sh | bash
+```
+
+Then two one-time manual steps (macOS won't let a script do these for you):
+
+1. **Enable the API:** iTerm2 → Settings → General → Magic → check **"Enable Python API"**.
+2. **Start it:** iTerm2 menu bar → **Scripts → AutoLaunch → `claude-limit-watcher.py`** (it also auto-starts on every future iTerm2 launch).
+
+Watch it work:
+
+```bash
+tail -f ~/.claude/iterm-limit-watcher.log
+```
+
+### Test it safely first
+
+Before letting it send real keystrokes, run it in **dry-run** — it logs *"would send …"* but sends nothing:
+
+```bash
+launchctl setenv CLAUDE_RESUME_DRY_RUN 1
+# fully quit & reopen iTerm2 so the daemon picks up the env var
+# undo later with:  launchctl unsetenv CLAUDE_RESUME_DRY_RUN
+```
+
+Hit a limit (or wait until you naturally do), confirm the log shows it detected the banner and parsed the right reset time, then turn dry-run off.
+
+### Configuration
+
+Set these for the GUI app with `launchctl setenv NAME value`, then restart iTerm2:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CLAUDE_RESUME_TEXT` | `continue` | What it types to resume a session |
+| `CLAUDE_RESUME_DRY_RUN` | `0` | `1` = log what it would do, send nothing |
+| `CLAUDE_RESUME_CUSHION` | `8` | Seconds to wait *past* the reset time before sending |
+| `CLAUDE_RESUME_MAX_WAIT` | `28800` | Safety cap on how long it will wait (8h) |
+| `CLAUDE_RESUME_FALLBACK` | `900` | If the reset time can't be parsed, retry after this many seconds |
+| `CLAUDE_RESUME_MATCH` | `""` | Only watch sessions whose command matches this substring; empty = all |
+| `CLAUDE_RESUME_LOG` | `~/.claude/iterm-limit-watcher.log` | Log file path |
+
+### Fullscreen mode (`/tui fullscreen`)
+
+Claude Code's fullscreen renderer (the v2.1.89+ preview, toggled with `/tui fullscreen`) draws on the terminal's **alternate screen buffer**, like `vim` or `htop`. The watcher handles **both** renderers:
+
+- **Fullscreen / alt-screen:** the banner stays on the rendered grid until Claude repaints, so it's actually *easier* to detect reliably.
+- **Default / inline:** the banner prints into normal scrollback and can scroll off — so the watcher captures the reset time **the first time it sees it** and schedules the resume immediately.
+
+Either way it reads the rendered cell grid (already plain text, no ANSI), rejoins soft-wrapped lines, and debounces so spinners/redraws don't cause double-fires.
+
+### How it works / caveats
+
+- One screen-streamer per session (event-driven, no busy-polling). When the banner matches, it arms a single resume and re-arms only after the banner clears — so it never double-fires on one limit.
+- Before sending, it **re-checks the screen** — if you already came back and resumed, it skips.
+- It's screen-scraping, so it depends on Claude Code's banner wording. If that ever changes, tune `LIMIT_RE` at the top of [`claude-limit-watcher.py`](./iterm/claude-limit-watcher.py). The reset-time parser is covered by [`test_limit_watcher.py`](./iterm/test_limit_watcher.py) (`python3 iterm/test_limit_watcher.py`).
+- It resumes what's *resumable*: a stalled agentic task nudged with `continue` carries on; a session idling for your next instruction has nothing meaningful to auto-continue.
+
+> **Alternative (no daemon): iTerm2 Triggers.** iTerm2 can fire an action on a regex match (Profiles → Advanced → Triggers). You can wire a trigger on `You've hit your .*limit .*resets (.+)` to **Invoke Script Function** and hand the captured time + session to a registered RPC. The bundled daemon is more self-contained (no per-profile setup), so it's the default here — but the trigger route works if you prefer iTerm2's native feature.
+
+---
+
+## 2. Headless wrapper (for unattended jobs)
+
+For "go do this big job on your own and resume across limits," run Claude Code through the wrapper instead of directly. On a limit it waits and resumes the **same session** with `--continue`, until the job is done. Non-limit errors fail fast so a genuine bug doesn't loop.
+
+### Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/install.sh | bash
 ```
 
-This drops the script in `~/.local/bin`. If that's not on your `PATH`, the installer tells you how to add it.
+Installs `claude-autoresume` into `~/.local/bin`. Or download [`claude-autoresume.sh`](./claude-autoresume.sh) manually and put it on your `PATH`.
 
-**Or manually** — download [`claude-autoresume.sh`](./claude-autoresume.sh), make it executable, and put it anywhere on your `PATH`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/claude-autoresume.sh -o ~/.local/bin/claude-autoresume
-chmod +x ~/.local/bin/claude-autoresume
-```
-
-Requires `bash`, `claude` on your `PATH`, and `curl` or `wget`.
-
-## Usage
+### Usage
 
 ```bash
 # Run a task and auto-resume across limits
 claude-autoresume "Refactor the auth module onto the service layer"
 
-# Resume the last session and nudge it forward
-claude-autoresume
-
-# Fire-and-forget: leave it running unattended and watch the log
-nohup claude-autoresume "big overnight task" >/dev/null 2>&1 &
+# Fire-and-forget overnight
+nohup claude-autoresume "big task" >/dev/null 2>&1 &
 tail -f ~/.claude/autoresume.log
 ```
 
-### What it does each round
-
-| Outcome | Action |
+| Outcome each round | Action |
 |---|---|
-| `exit 0` | The turn finished. **Stop** (unless `KEEP_GOING=1`). |
-| `exit != 0` + a limit/rate/overload message | **Wait `INTERVAL`, then resume.** Indefinitely. |
-| `exit != 0` + any other error | Retry up to `MAX_ERRORS` times, then give up. |
+| `exit 0` | Turn finished. **Stop** (unless `KEEP_GOING=1`). |
+| `exit != 0` + limit/rate/overload message | **Wait `INTERVAL`, resume.** Indefinitely. |
+| `exit != 0` + any other error | Retry up to `MAX_ERRORS`, then give up. |
 
-## Configuration
+Config via env vars: `INTERVAL` (300), `ERROR_WAIT` (15), `MAX_ERRORS` (3), `RESUME` (0), `KEEP_GOING` (0), `MAX_STALL` (25), `LOG`, `CLAUDE_BIN`. Run `claude-autoresume --help` for details.
 
-Everything is tuned with environment variables — no config file:
+For a long multi-turn job, set `KEEP_GOING=1`: the wrapper keeps nudging after each clean exit and only stops when the agent prints `<<TASK_COMPLETE>>` (or after `MAX_STALL` empty rounds).
 
-| Variable | Default | What it does |
-|---|---|---|
-| `INTERVAL` | `300` | Seconds to wait after a limit hit before resuming |
-| `ERROR_WAIT` | `15` | Seconds to wait between non-limit retries |
-| `MAX_ERRORS` | `3` | Consecutive non-limit failures before bailing |
-| `RESUME` | `0` | `1` = add `--continue` on the very first run too |
-| `KEEP_GOING` | `0` | `1` = keep nudging until the agent signals completion (see below) |
-| `MAX_STALL` | `25` | `KEEP_GOING`: max `exit 0`-without-signal rounds before stopping |
-| `LOG` | `~/.claude/autoresume.log` | Log file path |
-| `CLAUDE_BIN` | `claude` | Path to the `claude` binary |
-| `LIMIT_REGEX` | *(built-in)* | Override the limit-detection regex (advanced) |
+---
 
-```bash
-# Poll every 2 minutes instead of 5
-INTERVAL=120 claude-autoresume "task"
+## Why this exists
 
-# Keep going across many turns for a large job
-KEEP_GOING=1 claude-autoresume "migrate the whole test suite to Vitest"
-```
+Claude Code has no native "wait for my limit to reset and carry on" feature ([#36320](https://github.com/anthropics/claude-code/issues/36320), [#35744](https://github.com/anthropics/claude-code/issues/35744), [#46959](https://github.com/anthropics/claude-code/issues/46959)). There's no hook, setting, or plugin that fires on a usage limit and resumes — the only paths are an external wrapper or an external watcher, which is exactly what's here.
 
-## The one honest caveat
-
-In Claude Code's headless mode, **`exit 0` means "the agent finished its turn"** — which isn't always the same as "the whole job is done." For a small, single-turn task that's exactly right, and the default behaviour (stop on `exit 0`) is what you want.
-
-For a big multi-hour job, set **`KEEP_GOING=1`**. The wrapper then keeps nudging the agent to continue after each clean exit and only stops when the agent prints the sentinel `<<TASK_COMPLETE>>` — or after `MAX_STALL` empty rounds, as a safety net. It's the closest you can get to truly unattended large jobs given Claude Code has no native "task complete" signal.
-
-## How it works
-
-It's ~120 lines of bash. Each round it runs `claude` headlessly (`-p`, plus `--continue` to resume), captures the output, and inspects the exit code:
-
-- **`exit 0`** → done (or, with `KEEP_GOING`, nudge on).
-- **non-zero + output matching `LIMIT_REGEX`** → treat as a usage/rate limit, sleep `INTERVAL`, resume.
-- **non-zero + anything else** → count it as a real failure; after `MAX_ERRORS` in a row, stop.
-
-After the first attempt it always resumes with `--continue`, so a task that spans several limit windows is picked up where it left off rather than restarted. Everything is logged to `~/.claude/autoresume.log`.
+> The truly native way to *not stop at all* is to enable **extra usage / overage billing** on your account, so Claude Code doesn't hard-stop at the included limit. That's a billing setting, not something a script can do — but if you'd rather pay than wait, that's the real fix.
 
 ## FAQ
 
-**Does it use extra API credits while waiting?** Only the retry attempts. Each retry after a limit is one quick call that fails immediately — that's why the default `INTERVAL` is 5 minutes rather than seconds. The limit only lifts at its reset time, so polling faster just wastes failed calls.
+**Does the watcher need Accessibility permission?** No — it uses iTerm2's API socket, not synthetic keystrokes, so it skips the Accessibility/Screen-Recording prompts that AppleScript `keystroke` or `cliclick` need. Only "Enable Python API" in iTerm2.
 
-**Will it loop forever on a broken task?** No. Only *limit* failures retry indefinitely. Any other error retries `MAX_ERRORS` times (default 3) and then exits.
+**Will it loop forever on a broken task?** The wrapper only retries *limit* failures indefinitely; other errors stop after `MAX_ERRORS`. The watcher only acts on the specific limit banner and re-checks before sending.
 
-**Does it work with a `claude` subscription and with API keys?** Yes — it doesn't care how you're authenticated; it just reruns `claude` and reacts to the result.
+**Other terminals?** The watcher is iTerm2-specific (it relies on iTerm2's API). For other terminals, run Claude inside `tmux` and adapt the same idea with `capture-pane` + `send-keys`, or use the headless wrapper.
 
 ## License
 
