@@ -29,10 +29,20 @@ def check(name, got, expected):
           + ("" if ok else f" (expected {expected!r})"))
 
 
+def detect(banner):
+    """Mimic find_limit on a single string: returns (tool, when_text) or None."""
+    for tool, pat in clw.PATTERNS:
+        m = pat.search(banner)
+        if m:
+            return tool, m.group(1).strip()
+    return None
+
+
 def reset_for(banner):
-    m = clw.LIMIT_RE.search(banner)
-    assert m, f"banner did not match: {banner!r}"
-    got = clw.parse_reset(m.group(1).strip(), NOW)
+    found = detect(banner)
+    assert found, f"banner did not match any pattern: {banner!r}"
+    got = clw.parse_reset(found[1], NOW)
+    assert got is not None, f"parse_reset returned None for {banner!r}"
     return got.strftime("%Y-%m-%d %H:%M")
 
 
@@ -54,29 +64,41 @@ class FakeContents:
         return self._lines[i]
 
 
-print("reset-time parsing:")
+print("Claude Code — reset-time parsing:")
 check("session, later today", reset_for(
     "You've hit your session limit · resets 3:45pm"), "2026-06-26 15:45")
 check("session, already passed -> tomorrow", reset_for(
     "You've hit your session limit · resets 1:00pm"), "2026-06-27 13:00")
 check("weekly, day + time", reset_for(
     "You've hit your weekly limit · resets Mon 12:00am"), "2026-06-29 00:00")
-check("model-specific (Opus)", reset_for(
+check("model limit (Opus)", reset_for(
     "You've hit your Opus limit · resets 9:30am"), "2026-06-27 09:30")
-check("hyphen separator variant", reset_for(
-    "You've hit your session limit - resets 4:15pm"), "2026-06-26 16:15")
+check("detected tool == claude",
+      detect("You've hit your session limit · resets 3:45pm")[0], "claude")
 
-print("detection regex:")
-check("ignores ordinary output", bool(
-    clw.LIMIT_RE.search("Running tests, 3 passed")), False)
-check("ignores the word 'limit' alone", bool(
-    clw.LIMIT_RE.search("rate limit best practices")), False)
-check("matches the banner", bool(
-    clw.LIMIT_RE.search("You've hit your session limit · resets 3:45pm")), True)
+print("Codex — reset-time parsing:")
+check("usage limit, same day (space + caps PM)", reset_for(
+    "You've hit your usage limit. Visit ... or try again at 3:45 PM."),
+    "2026-06-26 15:45")
+check("usage limit, cross-day (Mon DD, YYYY)", reset_for(
+    "You've hit your usage limit. Try again at Jun 28th, 2026 3:45 PM."),
+    "2026-06-28 15:45")
+check("per-model, passed -> tomorrow", reset_for(
+    "You've hit your usage limit for gpt-5.4. Switch models now, or try again at 9:30 AM."),
+    "2026-06-27 09:30")
+check("detected tool == codex",
+      detect("You've hit your usage limit. Try again at 3:45 PM.")[0], "codex")
+check("'try again later' has no time -> None",
+      clw.parse_reset(detect("You've hit your usage limit. Try again later.")[1], NOW),
+      None)
 
-print("unparseable reset -> None (daemon falls back to a retry):")
-m = clw.LIMIT_RE.search("You've hit your session limit · resets soon")
-check("no clock time", clw.parse_reset(m.group(1).strip(), NOW), None)
+print("detection regex (negatives & positives):")
+check("ignores ordinary output", detect("Running tests, 3 passed"), None)
+check("ignores 'rate limit' prose", detect("rate limit best practices"), None)
+check("matches claude banner",
+      detect("You've hit your session limit · resets 3:45pm") is not None, True)
+check("matches codex banner",
+      detect("You've hit your usage limit. Try again at 3:45 PM.") is not None, True)
 
 print("soft-wrapped banner is rejoined and found:")
 wrapped = FakeContents([
@@ -84,10 +106,18 @@ wrapped = FakeContents([
     FakeLine("You've hit your session ", hard_eol=False),  # soft-wrapped...
     FakeLine("limit · resets 3:45pm", hard_eol=True),      # ...continuation
 ])
-check("find_limit across wrap", clw.find_limit(wrapped) is not None, True)
+check("find_limit across soft wrap", clw.find_limit(wrapped) is not None, True)
 
-single = FakeContents([FakeLine("nothing to see here", hard_eol=True)])
-check("find_limit on clean screen", clw.find_limit(single), None)
+print("boxed/hard-wrapped banner found via whole-screen fallback:")
+boxed = FakeContents([
+    FakeLine("│ You've hit your usage limit.        │", hard_eol=True),
+    FakeLine("│ Try again at 3:45 PM.               │", hard_eol=True),
+])
+found = clw.find_limit(boxed)
+check("find_limit across box", found is not None and found[0] == "codex", True)
+
+clean = FakeContents([FakeLine("nothing to see here", hard_eol=True)])
+check("find_limit on clean screen", clw.find_limit(clean), None)
 
 print("\nALL PASS" if failures == 0 else f"\n{failures} CHECK(S) FAILED")
 raise SystemExit(1 if failures else 0)

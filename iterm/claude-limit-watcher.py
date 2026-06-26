@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-claude-limit-watcher — auto-resume Claude Code in iTerm2 when a usage limit resets.
+claude-limit-watcher — auto-resume Claude Code or Codex in iTerm2 on a limit reset.
 
-An iTerm2 Python API daemon. It watches your terminal sessions, and when Claude
-Code prints its usage-limit banner — e.g.
+An iTerm2 Python API daemon. It watches your terminal sessions, and when a CLI
+prints its usage-limit banner — e.g.
 
-    You've hit your session limit · resets 3:45pm
-    You've hit your weekly limit · resets Mon 12:00am
+    You've hit your session limit · resets 3:45pm            (Claude Code)
+    You've hit your weekly limit · resets Mon 12:00am        (Claude Code)
+    You've hit your usage limit. … or try again at 3:45 PM.  (Codex)
 
 it parses the reset time, waits until then, and types your resume text (default
-"continue") back into that exact session. Claude Code does NOT auto-retry after a
-limit — it blocks until you resubmit — so this fills that gap. You keep launching
-`claude` exactly as normal; this just runs in the background and nudges it on.
+"** USAGE LIMIT RESET, RESUME SESSION **") back into that exact session. Neither
+tool auto-retries after a limit — they block until you resubmit — so this fills
+that gap. You keep launching `claude` / `codex` exactly as normal; this just runs
+in the background and nudges them on.
 
 Works in both the default (inline) renderer and the fullscreen `/tui fullscreen`
 renderer (alternate screen buffer). Reads the rendered screen as plain text via
@@ -26,7 +28,8 @@ Setup:
      (it also auto-starts on every iTerm2 launch).
 
 Configuration (set for the GUI app via `launchctl setenv`, then restart iTerm2):
-  CLAUDE_RESUME_TEXT     text typed to resume a session         (default "continue")
+  CLAUDE_RESUME_TEXT     text typed to resume a session
+                         (default "** USAGE LIMIT RESET, RESUME SESSION **")
   CLAUDE_RESUME_DRY_RUN  "1" = log what it WOULD do, send nothing      (default 0)
   CLAUDE_RESUME_CUSHION  seconds to wait past the reset time          (default 8)
   CLAUDE_RESUME_MAX_WAIT cap on how long it will wait, seconds    (default 28800)
@@ -49,10 +52,12 @@ try:
 except ImportError:  # lets the pure helpers be imported in tests without the API
     iterm2 = None
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # ── Configuration (read once at daemon start) ────────────────────────────────
-RESUME_TEXT = os.environ.get("CLAUDE_RESUME_TEXT", "continue")
+RESUME_TEXT = os.environ.get(
+    "CLAUDE_RESUME_TEXT", "** USAGE LIMIT RESET, RESUME SESSION **"
+)
 DRY_RUN = os.environ.get("CLAUDE_RESUME_DRY_RUN", "0") == "1"
 CUSHION_SECS = int(os.environ.get("CLAUDE_RESUME_CUSHION", "8"))
 MAX_WAIT_SECS = int(os.environ.get("CLAUDE_RESUME_MAX_WAIT", str(8 * 3600)))
@@ -63,16 +68,29 @@ LOG_PATH = os.path.expanduser(
 )
 
 # ── Detection ────────────────────────────────────────────────────────────────
-# Matches the confirmed banners. We keep it loose around the middot/separator and
-# the limit word ("session"/"weekly"/"Opus"/…) and capture everything after
-# "resets" for the time parser. Tune here if Claude Code's wording changes.
-LIMIT_RE = re.compile(
-    r"you'?ve hit your\b.*?\blimit\b.*?\breset[s]?\b\s*[:·\-]?\s*(.+)",
-    re.IGNORECASE,
-)
-TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*([ap])\.?m", re.IGNORECASE)
+# One (tool, regex) per supported CLI. Each regex captures the "when" text after
+# the limit phrase, which parse_reset() turns into a datetime. Tune here if a
+# tool's wording changes.
+#   Claude Code: "You've hit your session limit · resets 3:45pm"
+#                "You've hit your weekly limit · resets Mon 12:00am"
+#   Codex CLI:   "You've hit your usage limit. … or try again at 3:45 PM."
+#                "… try again at Jun 28th, 2026 3:45 PM."  /  "… try again later."
+PATTERNS = [
+    ("claude", re.compile(
+        r"you'?ve hit your\b.*?\blimit\b.*?\breset[s]?\b\s*[:·\-]?\s*(.+)", re.I)),
+    ("codex", re.compile(
+        r"you'?ve hit your usage limit\b.*?\btry again (?:at|later)\b\s*(.*)", re.I)),
+]
+TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*([ap])\.?\s?m", re.IGNORECASE)
 DAY_RE = re.compile(r"\b(mon|tue|wed|thu|fri|sat|sun)", re.IGNORECASE)
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+          "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+MONTHDATE_RE = re.compile(  # Codex cross-day: "Jun 28th, 2026"
+    r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+"
+    r"(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})",
+    re.IGNORECASE,
+)
 
 
 def log(msg: str) -> None:
@@ -87,22 +105,37 @@ def log(msg: str) -> None:
 
 
 def parse_reset(captured: str, now: dt.datetime):
-    """Turn 'resets …' text ('3:45pm', 'Mon 12:00am') into a future datetime."""
+    """Turn a reset/'try again' fragment into a future datetime, or None.
+
+    Handles: '3:45pm', '3:45 PM' (Claude/Codex same-day), 'Mon 12:00am'
+    (Claude weekly), and 'Jun 28th, 2026 3:45 PM' (Codex cross-day). Returns
+    None when no clock time is present (e.g. Codex 'try again later') so the
+    caller can fall back to a timed retry.
+    """
     tm = TIME_RE.search(captured)
     if not tm:
         return None
     hour = int(tm.group(1)) % 12
     if tm.group(3).lower() == "p":
         hour += 12
-    target = now.replace(hour=hour, minute=int(tm.group(2)), second=0, microsecond=0)
+    minute = int(tm.group(2))
 
+    md = MONTHDATE_RE.search(captured)
+    if md:  # explicit calendar date (Codex cross-day)
+        try:
+            return dt.datetime(int(md.group(3)), MONTHS[md.group(1).lower()[:3]],
+                               int(md.group(2)), hour, minute)
+        except ValueError:
+            return None
+
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     day = DAY_RE.search(captured)
-    if day:
+    if day:  # weekday name (Claude weekly)
         days_ahead = (WEEKDAYS[day.group(1).lower()] - now.weekday()) % 7
         target += dt.timedelta(days=days_ahead)
         if target <= now:
             target += dt.timedelta(days=7)
-    elif target <= now:
+    elif target <= now:  # bare time already passed today -> tomorrow
         target += dt.timedelta(days=1)
     return target
 
@@ -122,10 +155,21 @@ def logical_lines(contents):
 
 
 def find_limit(contents):
-    for line in logical_lines(contents):
-        m = LIMIT_RE.search(line)
+    """Return (tool, match) for the first limit banner on screen, else None."""
+    lines = logical_lines(contents)
+    for line in lines:
+        for tool, pat in PATTERNS:
+            m = pat.search(line)
+            if m:
+                return tool, m
+    # Fallback: some TUIs draw the banner in a bordered/hard-wrapped box, so the
+    # per-line view splits it. Retry against the whole screen with whitespace
+    # collapsed. The patterns are specific enough to stay false-positive-safe.
+    joined = re.sub(r"\s+", " ", " ".join(lines))
+    for tool, pat in PATTERNS:
+        m = pat.search(joined)
         if m:
-            return m
+            return tool, m
     return None
 
 
@@ -138,11 +182,11 @@ async def session_matches(session) -> bool:
     return needle in cmd.lower() or needle in job.lower()
 
 
-async def resume_when_ready(session, reset_at: dt.datetime) -> None:
+async def resume_when_ready(session, reset_at: dt.datetime, tool: str) -> None:
     delay = (reset_at - dt.datetime.now()).total_seconds()
     delay = max(0.0, min(delay, MAX_WAIT_SECS)) + CUSHION_SECS
     tag = " [DRY-RUN]" if DRY_RUN else ""
-    log(f"[{session.session_id}] limit detected; resume at "
+    log(f"[{session.session_id}] ({tool}) limit detected; resume at "
         f"{reset_at:%a %H:%M} (~{delay / 60:.0f} min){tag}")
     await asyncio.sleep(delay)
 
@@ -156,11 +200,11 @@ async def resume_when_ready(session, reset_at: dt.datetime) -> None:
         log(f"[{session.session_id}] banner cleared before reset; skipping resume")
         return
     if DRY_RUN:
-        log(f"[{session.session_id}] [DRY-RUN] would send {RESUME_TEXT!r} now")
+        log(f"[{session.session_id}] ({tool}) [DRY-RUN] would send {RESUME_TEXT!r} now")
         return
     try:
         await session.async_send_text(RESUME_TEXT + "\r", suppress_broadcast=True)
-        log(f"[{session.session_id}] sent {RESUME_TEXT!r} — resumed")
+        log(f"[{session.session_id}] ({tool}) sent {RESUME_TEXT!r} — resumed")
     except Exception as exc:
         log(f"[{session.session_id}] failed to send resume text: {exc}")
 
@@ -176,16 +220,17 @@ async def watch(session) -> None:
             contents = await streamer.async_get()
             if contents is None:
                 continue
-            hit = find_limit(contents)
-            if hit and not armed:
+            found = find_limit(contents)
+            if found and not armed:
                 armed = True
-                reset_at = parse_reset(hit.group(1).strip(), dt.datetime.now())
+                tool, match = found
+                reset_at = parse_reset(match.group(1).strip(), dt.datetime.now())
                 if reset_at is None:
                     reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
-                    log(f"[{session.session_id}] couldn't parse reset from "
-                        f"{hit.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
-                asyncio.create_task(resume_when_ready(session, reset_at))
-            elif not hit:
+                    log(f"[{session.session_id}] ({tool}) couldn't parse reset from "
+                        f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
+                asyncio.create_task(resume_when_ready(session, reset_at, tool))
+            elif not found:
                 armed = False
 
 

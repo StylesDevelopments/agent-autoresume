@@ -4,7 +4,7 @@
 [![Shell](https://img.shields.io/badge/shell-bash-green.svg)](./claude-autoresume.sh)
 [![iTerm2](https://img.shields.io/badge/iTerm2-Python%20API-blueviolet.svg)](./iterm/claude-limit-watcher.py)
 
-**Stop babysitting [Claude Code](https://www.claude.com/product/claude-code) usage limits.** When Claude Code hits your 5-hour or weekly limit it just *stops* and waits for you to come back and resubmit — it has no built-in resume. This repo gives you two small, dependency-free tools that wait out the limit and pick the work back up for you.
+**Stop babysitting AI coding-agent usage limits.** When [Claude Code](https://www.claude.com/product/claude-code) or [Codex](https://github.com/openai/codex) hits your limit it just *stops* and waits for you to come back and resubmit — neither has a built-in resume. This repo gives you two small, dependency-free tools that wait out the limit and pick the work back up for you.
 
 > Unofficial community tool. Not affiliated with or endorsed by Anthropic.
 
@@ -19,14 +19,17 @@ Pick whichever matches how you work — or use both.
 
 ## 1. iTerm2 live watcher (recommended for interactive use)
 
-A tiny background daemon (iTerm2's Python API) that watches your terminal sessions. When it sees Claude Code's limit banner —
+A tiny background daemon (iTerm2's Python API) that watches your terminal sessions. It supports **both Claude Code and Codex**. When it sees a limit banner —
 
 ```
-You've hit your session limit · resets 3:45pm
-You've hit your weekly limit · resets Mon 12:00am
+You've hit your session limit · resets 3:45pm            (Claude Code)
+You've hit your weekly limit · resets Mon 12:00am        (Claude Code)
+You've hit your usage limit. … or try again at 3:45 PM.  (Codex)
 ```
 
-— it parses the reset time, **waits until then**, and types `continue` into that exact session. **You keep launching `claude` exactly as you always do**; the watcher just sits in the background and nudges it on when the limit lifts.
+— it parses the reset time, **waits until then**, and types a clearly-visible resume banner (`** USAGE LIMIT RESET, RESUME SESSION **` by default) into that exact session. **You keep launching `claude` / `codex` exactly as you always do**; the watcher just sits in the background and nudges them on when the limit lifts.
+
+Both tools' fullscreen/alternate-screen renderers are handled (Codex defaults to alt-screen; Claude Code's `/tui fullscreen` is the same idea) — iTerm2's API reads the rendered grid either way.
 
 It reads the rendered screen as plain text and sends keystrokes through iTerm2's own API socket — so it needs **no macOS Accessibility or screen-recording permission**, just the iTerm2 Python API.
 
@@ -65,7 +68,7 @@ Set these for the GUI app with `launchctl setenv NAME value`, then restart iTerm
 
 | Variable | Default | What it does |
 |---|---|---|
-| `CLAUDE_RESUME_TEXT` | `continue` | What it types to resume a session |
+| `CLAUDE_RESUME_TEXT` | `** USAGE LIMIT RESET, RESUME SESSION **` | What it types to resume a session |
 | `CLAUDE_RESUME_DRY_RUN` | `0` | `1` = log what it would do, send nothing |
 | `CLAUDE_RESUME_CUSHION` | `8` | Seconds to wait *past* the reset time before sending |
 | `CLAUDE_RESUME_MAX_WAIT` | `28800` | Safety cap on how long it will wait (8h) |
