@@ -1,0 +1,6 @@
+# Local logs / scratch
+autoresume.log
+nohup.out
+
+# macOS
+.DS_Store
