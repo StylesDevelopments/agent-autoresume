@@ -8,12 +8,15 @@
 
 > Unofficial community tool. Not affiliated with or endorsed by Anthropic.
 
-| Tool | For | You run Claude… |
-|---|---|---|
-| **iTerm2 live watcher** | Your normal **interactive** sessions | exactly as you do now |
-| **Headless wrapper** | **Unattended** one-shot / overnight jobs | via a wrapper command |
+Supports **Claude Code** and **Codex**.
 
-Pick whichever matches how you work — or use both.
+| Tool | For | Terminal | You run the agent… |
+|---|---|---|---|
+| **iTerm2 live watcher** | Interactive sessions | iTerm2 | exactly as you do now |
+| **tmux live watcher** | Interactive sessions | **any** (Terminal.app, iTerm2, Ghostty…) | inside `tmux`, as normal |
+| **Headless wrapper** | Unattended one-shot / overnight jobs | any | via a wrapper command |
+
+Pick whichever matches how you work — or use several.
 
 ---
 
@@ -96,7 +99,49 @@ Either way it reads the rendered cell grid (already plain text, no ANSI), rejoin
 
 ---
 
-## 2. Headless wrapper (for unattended jobs)
+## 2. tmux live watcher (any terminal, incl. Terminal.app)
+
+Prefer Terminal.app, Ghostty, or anything that isn't iTerm2? Run your agent inside **tmux** and use this watcher. It polls every tmux pane, detects the same Claude Code / Codex banners, and resumes with `send-keys`.
+
+Why tmux: `capture-pane` reads the live rendered screen (including fullscreen/alt-screen TUIs) and `send-keys` drives a running TUI — with **zero macOS Automation/Accessibility permissions**. The only ask: launch your agent inside tmux.
+
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/tmux/install-tmux.sh | bash
+```
+
+Needs `tmux` (`brew install tmux`) and `python3`.
+
+### Usage
+
+```bash
+# 1. Work inside tmux and run your agent there as normal:
+tmux
+claude          # ...or: codex
+
+# 2. In any shell, leave the watcher running:
+claude-autoresume-tmux
+# or in the background:
+nohup claude-autoresume-tmux >/dev/null 2>&1 &
+tail -f ~/.claude/tmux-limit-watcher.log
+```
+
+Test safely first (logs what it would do, sends nothing):
+
+```bash
+CLAUDE_RESUME_DRY_RUN=1 claude-autoresume-tmux
+```
+
+### Configuration
+
+Environment variables: `CLAUDE_RESUME_TEXT` (the obvious banner), `CLAUDE_RESUME_DRY_RUN` (`0`), `CLAUDE_RESUME_POLL` (`20`s between scans), `CLAUDE_RESUME_CUSHION` (`8`), `CLAUDE_RESUME_MAX_WAIT` (`28800`), `CLAUDE_RESUME_FALLBACK` (`900`), `CLAUDE_RESUME_LOG`, `CLAUDE_RESUME_TMUX`.
+
+It's polling-based (every `CLAUDE_RESUME_POLL` seconds) rather than event-driven like the iTerm2 watcher — tmux has no screen-change push — but the overhead is negligible and the detection logic is the exact same shared module.
+
+---
+
+## 3. Headless wrapper (for unattended jobs)
 
 For "go do this big job on your own and resume across limits," run Claude Code through the wrapper instead of directly. On a limit it waits and resumes the **same session** with `--continue`, until the job is done. Non-limit errors fail fast so a genuine bug doesn't loop.
 
@@ -143,7 +188,9 @@ Claude Code has no native "wait for my limit to reset and carry on" feature ([#3
 
 **Will it loop forever on a broken task?** The wrapper only retries *limit* failures indefinitely; other errors stop after `MAX_ERRORS`. The watcher only acts on the specific limit banner and re-checks before sending.
 
-**Other terminals?** The watcher is iTerm2-specific (it relies on iTerm2's API). For other terminals, run Claude inside `tmux` and adapt the same idea with `capture-pane` + `send-keys`, or use the headless wrapper.
+**Other terminals (Terminal.app, Ghostty…)?** Use the **tmux live watcher** (section 2) — it works in any terminal as long as you run the agent inside tmux. The iTerm2 watcher is only for iTerm2.
+
+**Codex too?** Yes — both live watchers detect Codex's `You've hit your usage limit … try again at …` banner (incl. cross-day dates and `try again later`) alongside Claude Code's.
 
 ## License
 

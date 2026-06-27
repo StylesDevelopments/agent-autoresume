@@ -11,26 +11,32 @@ if [[ "$(uname)" != "Darwin" ]]; then
 fi
 
 REPO="StylesDevelopments/claude-autoresume"
-RAW="https://raw.githubusercontent.com/${REPO}/main/iterm/claude-limit-watcher.py"
+BASE="https://raw.githubusercontent.com/${REPO}/main"
 DEST_DIR="$HOME/Library/Application Support/iTerm2/Scripts/AutoLaunch"
-DEST="$DEST_DIR/claude-limit-watcher.py"
 
 mkdir -p "$DEST_DIR"
 
-# Prefer the local copy if running from a clone; otherwise download.
-SRC_LOCAL="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/claude-limit-watcher.py"
-if [[ -f "$SRC_LOCAL" ]]; then
-  cp "$SRC_LOCAL" "$DEST"
-elif command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$RAW" -o "$DEST"
-elif command -v wget >/dev/null 2>&1; then
-  wget -qO "$DEST" "$RAW"
-else
-  echo "Error: need curl or wget to install." >&2
-  exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
 
-echo "Installed → $DEST"
+# get <raw-path> <local-clone-path-relative-to-this-script> <dest>
+get() {
+  if [[ -n "${SCRIPT_DIR:-}" && -f "$SCRIPT_DIR/$2" ]]; then
+    cp "$SCRIPT_DIR/$2" "$3"
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$BASE/$1" -o "$3"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$3" "$BASE/$1"
+  else
+    echo "Error: need curl or wget to install." >&2
+    exit 1
+  fi
+}
+
+# The daemon imports limit_detect.py from beside it, so install both.
+get "iterm/claude-limit-watcher.py" "claude-limit-watcher.py" "$DEST_DIR/claude-limit-watcher.py"
+get "limit_detect.py"               "../limit_detect.py"       "$DEST_DIR/limit_detect.py"
+
+echo "Installed → $DEST_DIR/claude-limit-watcher.py (+ limit_detect.py)"
 cat <<'EOF'
 
 Two one-time manual steps (macOS won't let a script do these for you):

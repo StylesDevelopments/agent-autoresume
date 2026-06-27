@@ -15,14 +15,16 @@ tool auto-retries after a limit — they block until you resubmit — so this fi
 that gap. You keep launching `claude` / `codex` exactly as normal; this just runs
 in the background and nudges them on.
 
-Works in both the default (inline) renderer and the fullscreen `/tui fullscreen`
-renderer (alternate screen buffer). Reads the rendered screen as plain text via
-iTerm2's API and sends keystrokes back through iTerm2's own socket — so it needs
-no macOS Accessibility / screen-recording permission, only the iTerm2 Python API.
+Works in both the default (inline) renderer and the fullscreen / alternate-screen
+renderer (Codex defaults to alt-screen; Claude Code's `/tui fullscreen`). Reads
+the rendered screen as plain text and sends keystrokes through iTerm2's own API
+socket — so it needs no macOS Accessibility / screen-recording permission, only
+the iTerm2 Python API.
 
 Setup:
-  1. Copy this file to:
+  1. Copy this file AND limit_detect.py into:
        ~/Library/Application Support/iTerm2/Scripts/AutoLaunch/
+     (the installer does this for you)
   2. iTerm2 → Settings → General → Magic → enable "Enable Python API".
   3. Start it: iTerm2 menu → Scripts → AutoLaunch → claude-limit-watcher.py
      (it also auto-starts on every iTerm2 launch).
@@ -31,28 +33,37 @@ Configuration (set for the GUI app via `launchctl setenv`, then restart iTerm2):
   CLAUDE_RESUME_TEXT     text typed to resume a session
                          (default "** USAGE LIMIT RESET, RESUME SESSION **")
   CLAUDE_RESUME_DRY_RUN  "1" = log what it WOULD do, send nothing      (default 0)
-  CLAUDE_RESUME_CUSHION  seconds to wait past the reset time          (default 8)
-  CLAUDE_RESUME_MAX_WAIT cap on how long it will wait, seconds    (default 28800)
-  CLAUDE_RESUME_FALLBACK if the reset time can't be parsed, retry after  (default 900)
+  CLAUDE_RESUME_CUSHION  seconds to wait past the reset time           (default 8)
+  CLAUDE_RESUME_MAX_WAIT cap on how long it will wait, seconds     (default 28800)
+  CLAUDE_RESUME_FALLBACK if the reset time can't be parsed, retry after (default 900)
   CLAUDE_RESUME_MATCH    only watch sessions whose command matches this
-                         substring; "" = watch every session     (default "")
+                         substring; "" = watch every session      (default "")
   CLAUDE_RESUME_LOG      log file path     (default ~/.claude/iterm-limit-watcher.log)
 
-Unofficial community tool. Not affiliated with Anthropic. MIT licensed.
+Unofficial community tool. Not affiliated with Anthropic or OpenAI. MIT licensed.
 https://github.com/StylesDevelopments/claude-autoresume
 """
 
 import asyncio
 import datetime as dt
 import os
-import re
+import sys
+
+# Make the shared detector importable whether it sits beside this script (the
+# installer copies limit_detect.py into AutoLaunch/) or we're running from the
+# repo (it's at the repo root, one level up).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (_HERE, os.path.dirname(_HERE)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+import limit_detect  # noqa: E402
 
 try:
     import iterm2
-except ImportError:  # lets the pure helpers be imported in tests without the API
+except ImportError:  # lets the iTerm-specific helpers be imported in tests
     iterm2 = None
 
-VERSION = "1.2.0"
+VERSION = limit_detect.VERSION
 
 # ── Configuration (read once at daemon start) ────────────────────────────────
 RESUME_TEXT = os.environ.get(
@@ -67,31 +78,6 @@ LOG_PATH = os.path.expanduser(
     os.environ.get("CLAUDE_RESUME_LOG", "~/.claude/iterm-limit-watcher.log")
 )
 
-# ── Detection ────────────────────────────────────────────────────────────────
-# One (tool, regex) per supported CLI. Each regex captures the "when" text after
-# the limit phrase, which parse_reset() turns into a datetime. Tune here if a
-# tool's wording changes.
-#   Claude Code: "You've hit your session limit · resets 3:45pm"
-#                "You've hit your weekly limit · resets Mon 12:00am"
-#   Codex CLI:   "You've hit your usage limit. … or try again at 3:45 PM."
-#                "… try again at Jun 28th, 2026 3:45 PM."  /  "… try again later."
-PATTERNS = [
-    ("claude", re.compile(
-        r"you'?ve hit your\b.*?\blimit\b.*?\breset[s]?\b\s*[:·\-]?\s*(.+)", re.I)),
-    ("codex", re.compile(
-        r"you'?ve hit your usage limit\b.*?\btry again (?:at|later)\b\s*(.*)", re.I)),
-]
-TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*([ap])\.?\s?m", re.IGNORECASE)
-DAY_RE = re.compile(r"\b(mon|tue|wed|thu|fri|sat|sun)", re.IGNORECASE)
-WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
-MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-          "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
-MONTHDATE_RE = re.compile(  # Codex cross-day: "Jun 28th, 2026"
-    r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+"
-    r"(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})",
-    re.IGNORECASE,
-)
-
 
 def log(msg: str) -> None:
     line = f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}  {msg}"
@@ -102,42 +88,6 @@ def log(msg: str) -> None:
             fh.write(line + "\n")
     except OSError:
         pass
-
-
-def parse_reset(captured: str, now: dt.datetime):
-    """Turn a reset/'try again' fragment into a future datetime, or None.
-
-    Handles: '3:45pm', '3:45 PM' (Claude/Codex same-day), 'Mon 12:00am'
-    (Claude weekly), and 'Jun 28th, 2026 3:45 PM' (Codex cross-day). Returns
-    None when no clock time is present (e.g. Codex 'try again later') so the
-    caller can fall back to a timed retry.
-    """
-    tm = TIME_RE.search(captured)
-    if not tm:
-        return None
-    hour = int(tm.group(1)) % 12
-    if tm.group(3).lower() == "p":
-        hour += 12
-    minute = int(tm.group(2))
-
-    md = MONTHDATE_RE.search(captured)
-    if md:  # explicit calendar date (Codex cross-day)
-        try:
-            return dt.datetime(int(md.group(3)), MONTHS[md.group(1).lower()[:3]],
-                               int(md.group(2)), hour, minute)
-        except ValueError:
-            return None
-
-    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    day = DAY_RE.search(captured)
-    if day:  # weekday name (Claude weekly)
-        days_ahead = (WEEKDAYS[day.group(1).lower()] - now.weekday()) % 7
-        target += dt.timedelta(days=days_ahead)
-        if target <= now:
-            target += dt.timedelta(days=7)
-    elif target <= now:  # bare time already passed today -> tomorrow
-        target += dt.timedelta(days=1)
-    return target
 
 
 def logical_lines(contents):
@@ -156,21 +106,7 @@ def logical_lines(contents):
 
 def find_limit(contents):
     """Return (tool, match) for the first limit banner on screen, else None."""
-    lines = logical_lines(contents)
-    for line in lines:
-        for tool, pat in PATTERNS:
-            m = pat.search(line)
-            if m:
-                return tool, m
-    # Fallback: some TUIs draw the banner in a bordered/hard-wrapped box, so the
-    # per-line view splits it. Retry against the whole screen with whitespace
-    # collapsed. The patterns are specific enough to stay false-positive-safe.
-    joined = re.sub(r"\s+", " ", " ".join(lines))
-    for tool, pat in PATTERNS:
-        m = pat.search(joined)
-        if m:
-            return tool, m
-    return None
+    return limit_detect.find_limit_in_text("\n".join(logical_lines(contents)))
 
 
 async def session_matches(session) -> bool:
@@ -224,7 +160,8 @@ async def watch(session) -> None:
             if found and not armed:
                 armed = True
                 tool, match = found
-                reset_at = parse_reset(match.group(1).strip(), dt.datetime.now())
+                reset_at = limit_detect.parse_reset(
+                    match.group(1).strip(), dt.datetime.now())
                 if reset_at is None:
                     reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
                     log(f"[{session.session_id}] ({tool}) couldn't parse reset from "
