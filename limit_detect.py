@@ -10,6 +10,7 @@ Supported banners:
   Claude Code: "You've hit your session limit · resets 3:45pm"
                "You've hit your weekly limit · resets Mon 12:00am"
                "You've hit your session limit · resets in 1d 6h"
+               "What do you want to do? 1. Stop and wait for limit to reset"
   Codex CLI:   "You've hit your usage limit. … or try again at 3:45 PM."
                "… try again at Jun 28th, 2026 3:45 PM."  /  "… try again later."
 """
@@ -17,12 +18,18 @@ Supported banners:
 import datetime as dt
 import re
 
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 
 # One (tool, regex) per supported CLI. Each regex captures the "when" text after
 # the limit phrase, which parse_reset() turns into a datetime. Tune here if a
 # tool's wording changes — both watchers pick it up automatically.
 PATTERNS = [
+    ("claude-menu", re.compile(
+        r"\busage\b.*?\blimit reached\b\s*\(\s*(reset[s]?.*?)\s*\)"
+        r".*?\bwhat do you want to do\?.*?\bstop and wait for limit to reset\b"
+        r".*?\benter to confirm\b",
+        re.I,
+    )),
     ("claude", re.compile(
         r"you'?ve hit your\b.*?\blimit\b.*?\breset[s]?\b\s*[:·\-]?\s*(.+)", re.I)),
     ("codex", re.compile(

@@ -21,6 +21,7 @@ SESSION="catest_$$"
 LOG="$(mktemp)"
 WATCHER_PID=""
 RESUME_NEEDLE="USAGE LIMIT RESET, RESUME SESSION"
+MENU_NEEDLE="selected stop/wait option"
 
 # shellcheck disable=SC2317  # invoked indirectly via the EXIT trap
 cleanup() {
@@ -54,6 +55,32 @@ if tmux capture-pane -p -t "$SESSION" | tr -d "\n" | grep -q "$RESUME_NEEDLE"; t
   echo "--- pane ---"; tmux capture-pane -p -t "$SESSION" || true
   exit 1
 fi
+
+# Claude's interactive limit menu should be confirmed with Enter, choosing the
+# highlighted "Stop and wait for limit to reset" option. This is a different
+# state from the passive statusline footer above.
+tmux send-keys -t "$SESSION" C-c
+tmux send-keys -t "$SESSION" -l \
+  "Context ░░░░░░░░░░ 3% (32k/1.0M) │ Usage ⚠ Limit reached (resets in 1d 5h) What do you want to do? ❯ 1. Stop and wait for limit to reset 2. Upgrade your plan 3. Upgrade to Team plan Enter to confirm · Esc to cancel"
+
+menu_ok=0
+for _ in $(seq 1 20); do
+  if grep -q "$MENU_NEEDLE" "$LOG"; then
+    menu_ok=1
+    break
+  fi
+  sleep 0.5
+done
+if [[ "$menu_ok" != "1" ]]; then
+  echo "FAIL: watcher did not confirm Claude's limit menu"
+  echo "--- watcher log ---"; cat "$LOG" || true
+  echo "--- pane ---"; tmux capture-pane -p -t "$SESSION" || true
+  exit 1
+fi
+
+tmux send-keys -t "$SESSION" C-c C-l
+tmux clear-history -t "$SESSION"
+sleep 2
 
 # A real Claude blocked-turn banner with relative reset text. AUTORESUME_MAX_WAIT=0
 # above clamps the future reset wait so the integration test resumes immediately.

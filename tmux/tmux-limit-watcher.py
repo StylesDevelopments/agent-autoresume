@@ -8,6 +8,7 @@ and when it sees a usage-limit banner — e.g.
 
     You've hit your session limit · resets 3:45pm            (Claude Code)
     You've hit your session limit · resets in 1d 5h          (Claude Code)
+    What do you want to do? 1. Stop and wait for limit reset  (Claude Code)
     You've hit your usage limit. … or try again at 3:45 PM.  (Codex)
 
 it parses the reset time, waits until then, and sends your resume text (default
@@ -129,6 +130,24 @@ def send_resume(pane_id: str) -> bool:
     return r1.returncode == 0 and r2.returncode == 0
 
 
+def send_enter(pane_id: str) -> bool:
+    r = subprocess.run([TMUX, "send-keys", "-t", pane_id, "Enter"],
+                       capture_output=True, text=True, timeout=10)
+    return r.returncode == 0
+
+
+def confirm_claude_limit_menu(pane_id: str) -> None:
+    tag = " [DRY-RUN]" if DRY_RUN else ""
+    log(f"[{pane_id}] (claude) limit menu detected; selecting default "
+        f"'Stop and wait for limit to reset'{tag}")
+    if DRY_RUN:
+        return
+    if send_enter(pane_id):
+        log(f"[{pane_id}] (claude) selected stop/wait option")
+    else:
+        log(f"[{pane_id}] (claude) send-keys Enter failed")
+
+
 def schedule_resume(pane_id: str, reset_at: dt.datetime, tool: str) -> None:
     """Blocking wait until reset, then resume the pane if still blocked."""
     delay = (reset_at - dt.datetime.now()).total_seconds()
@@ -191,6 +210,14 @@ def main() -> None:
                 if busy:
                     continue
                 tool, match = found
+                if tool == "claude-menu":
+                    try:
+                        confirm_claude_limit_menu(pane_id)
+                    finally:
+                        with lock:
+                            pending.discard(pane_id)
+                            cooling.add(pane_id)
+                    continue
                 reset_at = limit_detect.parse_reset(
                     match.group(1).strip(), dt.datetime.now())
                 require_clear = True
