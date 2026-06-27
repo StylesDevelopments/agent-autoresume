@@ -12,9 +12,21 @@ fi
 
 REPO="StylesDevelopments/agent-autoresume"
 BASE="https://raw.githubusercontent.com/${REPO}/main"
-DEST_DIR="$HOME/Library/Application Support/iTerm2/Scripts/AutoLaunch"
+
+# iTerm2's AutoLaunch dir can live under a custom config dir (e.g. when prefs are
+# kept in ~/.config/iterm2). Prefer whichever Scripts/AutoLaunch already exists;
+# otherwise fall back to the standard location.
+DEST_DIR=""
+for _base in "$HOME/.config/iterm2/AppSupport" "$HOME/Library/Application Support/iTerm2"; do
+  if [[ -d "$_base/Scripts/AutoLaunch" ]]; then
+    DEST_DIR="$_base/Scripts/AutoLaunch"
+    break
+  fi
+done
+[[ -n "$DEST_DIR" ]] || DEST_DIR="$HOME/Library/Application Support/iTerm2/Scripts/AutoLaunch"
 
 mkdir -p "$DEST_DIR"
+echo "iTerm AutoLaunch dir: $DEST_DIR"
 
 # Only treat this as a local clone when genuinely running from a script file.
 # Under `curl | bash`, $0 is "bash" and its dirname is the caller's CWD — which
