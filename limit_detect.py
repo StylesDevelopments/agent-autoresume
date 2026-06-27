@@ -113,9 +113,12 @@ def find_limit_in_text(text: str):
             m = pat.search(line)
             if m:
                 return tool, m
-    joined = re.sub(r"\s+", " ", " ".join(lines))
-    for tool, pat in PATTERNS:
-        m = pat.search(joined)
-        if m:
-            return tool, m
+    # Two fallbacks cover common TUI renderers:
+    #   joined: bordered/wrapped boxes that split phrases across grid rows
+    #   dewrapped: tmux hard-wraps inside words, e.g. "r\nesets"
+    for candidate in (re.sub(r"\s+", " ", " ".join(lines)), text.replace("\n", "")):
+        for tool, pat in PATTERNS:
+            m = pat.search(candidate)
+            if m:
+                return tool, m
     return None

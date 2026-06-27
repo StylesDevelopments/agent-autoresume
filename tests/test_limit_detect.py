@@ -88,6 +88,9 @@ boxed = ("┌──────────────────────�
          "│ Try again at 3:45 PM.       │\n"
          "└─────────────────────────────┘")
 check("found across bordered box", tool_of(boxed), "codex")
+hard_wrapped = ("You've hit your session limit · r\n"
+                "esets in 1d 5h")
+check("found across tmux hard-wrap inside word", tool_of(hard_wrapped), "claude")
 check("clean screen -> None",
       ld.find_limit_in_text("nothing\nto see\nhere"), None)
 
