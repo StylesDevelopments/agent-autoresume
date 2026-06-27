@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-iTerm-specific tests for claude-limit-watcher.py: soft-wrap reconstruction and
+iTerm-specific tests for agent-limit-watcher.py: soft-wrap reconstruction and
 the find_limit(contents) wrapper. Loading the module also proves the shared
 limit_detect import path resolves. Pure-logic detection/parsing is covered by
 tests/test_limit_detect.py.
@@ -13,7 +13,7 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location(
-    "clw", os.path.join(HERE, "claude-limit-watcher.py")
+    "clw", os.path.join(HERE, "agent-limit-watcher.py")
 )
 clw = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(clw)  # also exercises: import limit_detect

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# claude-autoresume — keep a Claude Code or Codex job alive across usage limits.
+# agent-autoresume — keep a Claude Code or Codex job alive across usage limits.
 #
 # Neither Claude Code nor Codex has a built-in "wait for my limit to reset and
 # carry on" feature. This wrapper runs the agent headlessly and, on a usage/rate
@@ -8,11 +8,11 @@
 # Real (non-limit) errors fail fast so a genuine bug doesn't loop.
 #
 # Unofficial community tool. Not affiliated with Anthropic or OpenAI. MIT.
-# https://github.com/StylesDevelopments/claude-autoresume
+# https://github.com/StylesDevelopments/agent-autoresume
 #
 set -uo pipefail
 
-VERSION="1.3.0"
+VERSION="1.4.0"
 
 # ── Configuration (override via environment variables) ───────────────────────
 TOOL="${TOOL:-claude}"             # which agent: claude | codex
@@ -36,14 +36,14 @@ LIMIT_REGEX="${LIMIT_REGEX:-usage limit|session limit|weekly limit|5-hour limit|
 
 print_help() {
   cat <<'EOF'
-claude-autoresume — keep a Claude Code or Codex job alive across usage limits.
+agent-autoresume — keep a Claude Code or Codex job alive across usage limits.
 
 USAGE
-  claude-autoresume "your task prompt"          Run a task (Claude), auto-resume
-  claude-autoresume --codex "your task prompt"  Run a task with Codex
-  claude-autoresume --tool codex "task"         Same, explicit form
-  claude-autoresume                             Resume the last session, nudge it on
-  claude-autoresume --help | --version
+  agent-autoresume "your task prompt"          Run a task (Claude), auto-resume
+  agent-autoresume --codex "your task prompt"  Run a task with Codex
+  agent-autoresume --tool codex "task"         Same, explicit form
+  agent-autoresume                             Resume the last session, nudge it on
+  agent-autoresume --help | --version
 
 TOOLS
   --claude        use Claude Code   (default; runs: claude -p / claude --continue)
@@ -51,7 +51,7 @@ TOOLS
   --tool <name>   claude | codex    (or set TOOL=codex in the environment)
 
 LEAVE IT RUNNING UNATTENDED
-  nohup claude-autoresume "big task" >/dev/null 2>&1 &
+  nohup agent-autoresume "big task" >/dev/null 2>&1 &
   tail -f ~/.claude/autoresume.log
 
 WHAT IT DOES EACH ROUND
@@ -74,7 +74,7 @@ ENVIRONMENT VARIABLES (all optional)
   LIMIT_REGEX  Override the limit-detection regex (advanced)
 
 Unofficial community tool. Not affiliated with Anthropic or OpenAI.
-https://github.com/StylesDevelopments/claude-autoresume
+https://github.com/StylesDevelopments/agent-autoresume
 EOF
 }
 
@@ -83,10 +83,12 @@ PROMPT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)    print_help; exit 0 ;;
-    -V|--version) echo "claude-autoresume $VERSION"; exit 0 ;;
+    -V|--version) echo "agent-autoresume $VERSION"; exit 0 ;;
     --claude)     TOOL="claude"; shift ;;
     --codex)      TOOL="codex"; shift ;;
-    -t|--tool)    TOOL="${2:-}"; shift 2 ;;
+    -t|--tool)
+      [[ $# -ge 2 ]] || { echo "agent-autoresume: --tool requires a value (claude|codex)" >&2; exit 2; }
+      TOOL="$2"; shift 2 ;;
     *)            PROMPT="$1"; shift ;;
   esac
 done
@@ -94,7 +96,7 @@ done
 case "$TOOL" in
   claude) BIN="$CLAUDE_BIN" ;;
   codex)  BIN="$CODEX_BIN" ;;
-  *) echo "claude-autoresume: unknown tool '$TOOL' (use claude or codex)" >&2; exit 2 ;;
+  *) echo "agent-autoresume: unknown tool '$TOOL' (use claude or codex)" >&2; exit 2 ;;
 esac
 
 if [[ "$KEEP_GOING" == "1" ]]; then
@@ -108,7 +110,7 @@ mkdir -p "$(dirname "$LOG")"
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG" >&2; }
 
 command -v "$BIN" >/dev/null 2>&1 || {
-  echo "claude-autoresume: '$BIN' not found (set CLAUDE_BIN/CODEX_BIN or add $TOOL to PATH)" >&2
+  echo "agent-autoresume: '$BIN' not found (set CLAUDE_BIN/CODEX_BIN or add $TOOL to PATH)" >&2
   exit 127
 }
 
@@ -153,7 +155,9 @@ while true; do
   out="$(mktemp)"
   "$BIN" "${ARGS[@]}" 2>&1 | tee -a "$LOG" | tee "$out"
   rc=${PIPESTATUS[0]}
-  first=0
+  # NB: do NOT mark non-first here — a non-limit failure must re-run the original
+  # argv, not switch to --continue/resume. We move to resume mode only after a
+  # limit hit or an intentional keep-going nudge (below).
 
   if [[ $rc -eq 0 ]]; then
     errors=0
@@ -171,14 +175,14 @@ while true; do
       rm -f "$out"; exit 0
     fi
     log "Exit 0 but no sentinel — nudging to continue (${stalls}/${MAX_STALL})."
-    rm -f "$out"; sleep 3; continue
+    rm -f "$out"; first=0; sleep 3; continue
   fi
 
   # rc != 0 — distinguish a usage/rate limit from a genuine failure.
   if grep -qiE "$LIMIT_REGEX" "$out"; then
     errors=0; stalls=0
     log "Usage/rate limit hit (exit $rc). Waiting ${INTERVAL}s then resuming…"
-    rm -f "$out"; sleep "$INTERVAL"; continue
+    rm -f "$out"; first=0; sleep "$INTERVAL"; continue
   fi
 
   errors=$((errors + 1))
