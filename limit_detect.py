@@ -16,7 +16,7 @@ Supported banners:
 import datetime as dt
 import re
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 # One (tool, regex) per supported CLI. Each regex captures the "when" text after
 # the limit phrase, which parse_reset() turns into a datetime. Tune here if a

@@ -133,7 +133,10 @@ def main() -> None:
 
     import threading
 
-    armed: set[str] = set()  # panes with a resume already scheduled
+    # A pane stays "armed" from when we detect its banner until the banner
+    # clears — so we schedule exactly one resume per limit event and never spam
+    # while the banner is still on screen. It re-arms once the banner is gone.
+    armed: set[str] = set()
     log(f"tmux-limit-watcher {VERSION} running "
         f"(resume_text={RESUME_TEXT!r}, dry_run={DRY_RUN}, poll={POLL_SECS}s)")
 
@@ -141,33 +144,23 @@ def main() -> None:
         live = set(list_panes())
         armed.intersection_update(live)  # forget panes that closed
         for pane_id in live:
-            if pane_id in armed:
-                continue
             found = limit_detect.find_limit_in_text(capture(pane_id))
-            if not found:
-                continue
-            tool, match = found
-            reset_at = limit_detect.parse_reset(
-                match.group(1).strip(), dt.datetime.now())
-            if reset_at is None:
-                reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
-                log(f"[{pane_id}] ({tool}) couldn't parse reset from "
-                    f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
-            armed.add(pane_id)
-            threading.Thread(
-                target=_resume_then_disarm,
-                args=(pane_id, reset_at, tool, armed),
-                daemon=True,
-            ).start()
+            if found and pane_id not in armed:
+                armed.add(pane_id)
+                tool, match = found
+                reset_at = limit_detect.parse_reset(
+                    match.group(1).strip(), dt.datetime.now())
+                if reset_at is None:
+                    reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
+                    log(f"[{pane_id}] ({tool}) couldn't parse reset from "
+                        f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
+                threading.Thread(
+                    target=schedule_resume, args=(pane_id, reset_at, tool),
+                    daemon=True,
+                ).start()
+            elif not found and pane_id in armed:
+                armed.discard(pane_id)  # banner cleared -> ready for next time
         time.sleep(POLL_SECS)
-
-
-def _resume_then_disarm(pane_id, reset_at, tool, armed) -> None:
-    try:
-        schedule_resume(pane_id, reset_at, tool)
-    finally:
-        # Re-arm so a later limit on the same pane is handled again.
-        armed.discard(pane_id)
 
 
 if __name__ == "__main__":

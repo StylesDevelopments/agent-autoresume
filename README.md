@@ -1,5 +1,6 @@
 # claude-autoresume
 
+[![CI](https://github.com/StylesDevelopments/claude-autoresume/actions/workflows/ci.yml/badge.svg)](https://github.com/StylesDevelopments/claude-autoresume/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash-green.svg)](./claude-autoresume.sh)
 [![iTerm2](https://img.shields.io/badge/iTerm2-Python%20API-blueviolet.svg)](./iterm/claude-limit-watcher.py)
@@ -191,6 +192,16 @@ Claude Code has no native "wait for my limit to reset and carry on" feature ([#3
 **Other terminals (Terminal.app, Ghostty…)?** Use the **tmux live watcher** (section 2) — it works in any terminal as long as you run the agent inside tmux. The iTerm2 watcher is only for iTerm2.
 
 **Codex too?** Yes — both live watchers detect Codex's `You've hit your usage limit … try again at …` banner (incl. cross-day dates and `try again later`) alongside Claude Code's.
+
+## Development
+
+```bash
+python3 tests/test_limit_detect.py     # detection + reset-time parsing (Claude + Codex)
+python3 iterm/test_limit_watcher.py    # iTerm soft-wrap reconstruction + import wiring
+bash    tests/test_tmux_integration.sh # end-to-end: real tmux pane, real resume
+```
+
+CI ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)) runs all of the above plus `bash -n` and `py_compile` on every push and PR. The integration test is the key one — it spins up a real tmux pane, shows a real limit banner, runs the watcher for real, and asserts it types the resume text into the pane.
 
 ## License
 
