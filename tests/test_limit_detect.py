@@ -50,8 +50,17 @@ check("model limit (Opus)", reset_for(
 check("session, relative reset", reset_for(
     "You've hit your session limit · resets in 1d 5h"),
     "2026-06-27 19:00")
+menu = ("Context ░░░░░░░░░░ 3% (28k/1.0M) │ "
+        "Usage ⚠ Limit reached (resets in 1d 5h)\n"
+        "What do you want to do?\n"
+        "❯ 1. Stop and wait for limit to reset\n"
+        "  2. Upgrade your plan\n"
+        "  3. Upgrade to Team plan\n"
+        "Enter to confirm · Esc to cancel")
+check("limit menu, relative reset", reset_for(menu), "2026-06-27 19:00")
 check("tool == claude", tool_of(
     "You've hit your session limit · resets 3:45pm"), "claude")
+check("menu tool == claude-menu", tool_of(menu), "claude-menu")
 
 print("Codex — reset-time parsing:")
 check("usage limit, same day (space + caps PM)", reset_for(

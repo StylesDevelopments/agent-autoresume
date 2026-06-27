@@ -12,7 +12,7 @@
 #
 set -uo pipefail
 
-VERSION="1.4.1"
+VERSION="1.4.2"
 
 # ── Configuration (override via environment variables) ───────────────────────
 TOOL="${TOOL:-claude}"             # which agent: claude | codex

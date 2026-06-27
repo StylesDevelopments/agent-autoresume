@@ -8,6 +8,7 @@ prints its usage-limit banner — e.g.
     You've hit your session limit · resets 3:45pm            (Claude Code)
     You've hit your weekly limit · resets Mon 12:00am        (Claude Code)
     You've hit your session limit · resets in 1d 5h          (Claude Code)
+    What do you want to do? 1. Stop and wait for limit reset  (Claude Code)
     You've hit your usage limit. … or try again at 3:45 PM.  (Codex)
 
 it parses the reset time, waits until then, and types your resume text (default
@@ -148,6 +149,19 @@ async def resume_when_ready(session, reset_at: dt.datetime, tool: str) -> None:
         log(f"[{session.session_id}] failed to send resume text: {exc}")
 
 
+async def confirm_claude_limit_menu(session) -> None:
+    tag = " [DRY-RUN]" if DRY_RUN else ""
+    log(f"[{session.session_id}] (claude) limit menu detected; selecting default "
+        f"'Stop and wait for limit to reset'{tag}")
+    if DRY_RUN:
+        return
+    try:
+        await session.async_send_text("\r", suppress_broadcast=True)
+        log(f"[{session.session_id}] (claude) selected stop/wait option")
+    except Exception as exc:
+        log(f"[{session.session_id}] failed to confirm limit menu: {exc}")
+
+
 async def watch(session) -> None:
     """One streamer per session. Schedule exactly one resume per limit episode:
     ignore further detections while a resume is pending, and re-arm only after
@@ -175,6 +189,10 @@ async def watch(session) -> None:
                 if not resume_pending and not cooling_down:
                     resume_pending = True
                     tool, match = found
+                    if tool == "claude-menu":
+                        task = asyncio.create_task(confirm_claude_limit_menu(session))
+                        task.add_done_callback(_on_done(True))
+                        continue
                     reset_at = limit_detect.parse_reset(
                         match.group(1).strip(), dt.datetime.now())
                     require_clear = True

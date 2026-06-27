@@ -40,7 +40,7 @@ agent-autoresume --codex "big task"    # Codex
 
 ## How it works
 
-A watcher reads your terminal screen, spots a blocking limit banner (`You've hit your … limit · resets 3:45pm`, `… resets in 1d 5h`, or Codex `… try again at 3:45 PM`), waits until the reset, then types a clear marker — `** USAGE LIMIT RESET, RESUME SESSION **` — back into that session. The iTerm2 watcher uses iTerm2's API; the tmux watcher uses `capture-pane`/`send-keys` — **neither needs macOS Accessibility/screen-recording permission**.
+A watcher reads your terminal screen, spots a blocking limit banner (`You've hit your … limit · resets 3:45pm`, `… resets in 1d 5h`, or Codex `… try again at 3:45 PM`), waits until the reset, then types a clear marker — `** USAGE LIMIT RESET, RESUME SESSION **` — back into that session. If Claude shows its interactive limit menu, the watcher selects the highlighted `Stop and wait for limit to reset` option. The iTerm2 watcher uses iTerm2's API; the tmux watcher uses `capture-pane`/`send-keys` — **neither needs macOS Accessibility/screen-recording permission**.
 
 Claude Code statuslines can also show a non-blocking quota footer such as `Usage ⚠ Limit reached (resets in 1d 5h)` while requests still work. The watchers intentionally ignore that footer by itself and wait for an actual blocked-turn banner before resuming.
 
