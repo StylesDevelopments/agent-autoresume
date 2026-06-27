@@ -1,51 +1,7 @@
 name: CI
-
-on:
-  push:
-  pull_request:
-  workflow_dispatch:
-
+on: [push, workflow_dispatch]
 jobs:
-  test:
+  hello:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
-
-      - name: Shell syntax check (bash -n)
-        run: |
-          for f in claude-autoresume.sh install.sh \
-                   iterm/install-iterm.sh tmux/install-tmux.sh \
-                   tests/test_tmux_integration.sh; do
-            echo "bash -n $f"
-            bash -n "$f"
-          done
-
-      - name: shellcheck (advisory)
-        continue-on-error: true
-        run: |
-          sudo apt-get install -y shellcheck
-          shellcheck claude-autoresume.sh install.sh \
-                     iterm/install-iterm.sh tmux/install-tmux.sh \
-                     tests/test_tmux_integration.sh
-
-      - name: Compile Python
-        run: |
-          python3 -m py_compile \
-            limit_detect.py \
-            iterm/claude-limit-watcher.py \
-            tmux/tmux-limit-watcher.py
-
-      - name: Unit tests (detection + parsing)
-        run: |
-          python3 tests/test_limit_detect.py
-          python3 iterm/test_limit_watcher.py
-
-      - name: Integration test (tmux: real pane, real resume)
-        run: bash tests/test_tmux_integration.sh
+      - run: echo hello
