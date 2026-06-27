@@ -16,7 +16,7 @@ DEST_DIR="$HOME/Library/Application Support/iTerm2/Scripts/AutoLaunch"
 
 mkdir -p "$DEST_DIR"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
 
 # get <raw-path> <local-clone-path-relative-to-this-script> <dest>
 get() {

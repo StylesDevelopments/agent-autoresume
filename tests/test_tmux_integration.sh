@@ -21,6 +21,7 @@ SESSION="catest_$$"
 LOG="$(mktemp)"
 WATCHER_PID=""
 
+# shellcheck disable=SC2317  # invoked indirectly via the EXIT trap
 cleanup() {
   if [[ -n "$WATCHER_PID" ]]; then
     kill "$WATCHER_PID" 2>/dev/null || true
