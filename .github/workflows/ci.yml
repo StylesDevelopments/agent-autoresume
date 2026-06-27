@@ -83,8 +83,10 @@ jobs:
           done
           /bin/bash agent-autoresume.sh --version
           /bin/bash agent-autoresume.sh --help >/dev/null
-          /bin/bash agent-autoresume.sh --tool >/dev/null 2>&1; test $? -eq 2
-          /bin/bash agent-autoresume.sh --tool bogus xyz >/dev/null 2>&1; test $? -eq 2
+          rc=0; /bin/bash agent-autoresume.sh --tool >/dev/null 2>&1 || rc=$?
+          [ "$rc" -eq 2 ] || { echo "::error::--tool with no value should exit 2, got $rc"; exit 1; }
+          rc=0; /bin/bash agent-autoresume.sh --tool bogus xyz >/dev/null 2>&1 || rc=$?
+          [ "$rc" -eq 2 ] || { echo "::error::--tool bogus should exit 2, got $rc"; exit 1; }
 
       - name: Compile + unit tests
         run: |
