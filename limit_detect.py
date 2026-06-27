@@ -9,6 +9,7 @@ detection logic can never drift between backends:
 Supported banners:
   Claude Code: "You've hit your session limit · resets 3:45pm"
                "You've hit your weekly limit · resets Mon 12:00am"
+               "You've hit your session limit · resets in 1d 6h"
   Codex CLI:   "You've hit your usage limit. … or try again at 3:45 PM."
                "… try again at Jun 28th, 2026 3:45 PM."  /  "… try again later."
 """
@@ -16,7 +17,7 @@ Supported banners:
 import datetime as dt
 import re
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 # One (tool, regex) per supported CLI. Each regex captures the "when" text after
 # the limit phrase, which parse_reset() turns into a datetime. Tune here if a
@@ -38,16 +39,38 @@ MONTHDATE_RE = re.compile(  # Codex cross-day: "Jun 28th, 2026"
     r"(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})",
     re.IGNORECASE,
 )
+RELATIVE_PART_RE = re.compile(
+    r"(\d+)\s*(d|day|days|h|hr|hrs|hour|hours|m|min|mins|minute|minutes)\b",
+    re.IGNORECASE,
+)
 
 
 def parse_reset(captured: str, now: dt.datetime):
     """Turn a reset/'try again' fragment into a future datetime, or None.
 
     Handles: '3:45pm', '3:45 PM' (Claude/Codex same-day), 'Mon 12:00am'
-    (Claude weekly), and 'Jun 28th, 2026 3:45 PM' (Codex cross-day). Returns
-    None when no clock time is present (e.g. Codex 'try again later') so the
-    caller can fall back to a timed retry.
+    (Claude weekly), 'Jun 28th, 2026 3:45 PM' (Codex cross-day), and relative
+    fragments like 'resets in 1d 6h'. Returns None when no reset time is present
+    (e.g. Codex 'try again later') so the caller can fall back to a timed retry.
     """
+    captured = captured.strip().strip("()[] ")
+
+    delta_parts = RELATIVE_PART_RE.findall(captured)
+    if delta_parts:
+        days = hours = minutes = 0
+        for amount_text, unit in delta_parts:
+            amount = int(amount_text)
+            unit = unit.lower()
+            if unit.startswith("d"):
+                days += amount
+            elif unit.startswith("h"):
+                hours += amount
+            elif unit.startswith("m"):
+                minutes += amount
+        delta = dt.timedelta(days=days, hours=hours, minutes=minutes)
+        if delta.total_seconds() > 0:
+            return now + delta
+
     tm = TIME_RE.search(captured)
     if not tm:
         return None

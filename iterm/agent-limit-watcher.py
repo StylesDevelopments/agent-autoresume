@@ -7,6 +7,7 @@ prints its usage-limit banner — e.g.
 
     You've hit your session limit · resets 3:45pm            (Claude Code)
     You've hit your weekly limit · resets Mon 12:00am        (Claude Code)
+    You've hit your session limit · resets in 1d 5h          (Claude Code)
     You've hit your usage limit. … or try again at 3:45 PM.  (Codex)
 
 it parses the reset time, waits until then, and types your resume text (default
@@ -157,10 +158,12 @@ async def watch(session) -> None:
     resume_pending = False
     cooling_down = False  # resume finished; wait for the banner to clear
 
-    def _on_done(_task) -> None:
-        nonlocal resume_pending, cooling_down
-        resume_pending = False
-        cooling_down = True
+    def _on_done(require_clear):
+        def done(_task) -> None:
+            nonlocal resume_pending, cooling_down
+            resume_pending = False
+            cooling_down = require_clear
+        return done
 
     async with session.get_screen_streamer(want_contents=True) as streamer:
         while True:
@@ -174,12 +177,14 @@ async def watch(session) -> None:
                     tool, match = found
                     reset_at = limit_detect.parse_reset(
                         match.group(1).strip(), dt.datetime.now())
+                    require_clear = True
                     if reset_at is None:
                         reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
+                        require_clear = False
                         log(f"[{session.session_id}] ({tool}) couldn't parse reset from "
                             f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
                     task = asyncio.create_task(resume_when_ready(session, reset_at, tool))
-                    task.add_done_callback(_on_done)
+                    task.add_done_callback(_on_done(require_clear))
             else:
                 cooling_down = False
 

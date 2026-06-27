@@ -47,6 +47,9 @@ check("weekly, day + time", reset_for(
     "You've hit your weekly limit · resets Mon 12:00am"), "2026-06-29 00:00")
 check("model limit (Opus)", reset_for(
     "You've hit your Opus limit · resets 9:30am"), "2026-06-27 09:30")
+check("session, relative reset", reset_for(
+    "You've hit your session limit · resets in 1d 5h"),
+    "2026-06-27 19:00")
 check("tool == claude", tool_of(
     "You've hit your session limit · resets 3:45pm"), "claude")
 
@@ -73,6 +76,8 @@ check("matches claude banner",
       ld.find_limit_in_text("You've hit your session limit · resets 3:45pm") is not None, True)
 check("matches codex banner",
       ld.find_limit_in_text("You've hit your usage limit. Try again at 3:45 PM.") is not None, True)
+check("ignores Claude statusline footer",
+      ld.find_limit_in_text("Usage ⚠ Limit reached (resets in 1d 5h)"), None)
 
 print("multi-line screens (per-line + boxed fallback):")
 check("found amid other output", tool_of(
