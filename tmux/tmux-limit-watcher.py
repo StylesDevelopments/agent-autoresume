@@ -7,6 +7,7 @@ Ghostty, …) as long as you run your agent inside tmux. It polls every tmux pan
 and when it sees a usage-limit banner — e.g.
 
     You've hit your session limit · resets 3:45pm            (Claude Code)
+    You've hit your session limit · resets in 1d 5h          (Claude Code)
     You've hit your usage limit. … or try again at 3:45 PM.  (Codex)
 
 it parses the reset time, waits until then, and sends your resume text (default
@@ -161,13 +162,14 @@ def main() -> None:
     cooling: set[str] = set()
     lock = threading.Lock()
 
-    def _resume_then_cool(pane_id, reset_at, tool):
+    def _resume_then_cool(pane_id, reset_at, tool, require_clear):
         try:
             schedule_resume(pane_id, reset_at, tool)
         finally:
             with lock:
                 pending.discard(pane_id)
-                cooling.add(pane_id)
+                if require_clear:
+                    cooling.add(pane_id)
 
     scope = "all panes" if not MATCH_COMMAND else f"command~{MATCH_COMMAND!r}"
     log(f"tmux-limit-watcher {VERSION} running "
@@ -191,12 +193,15 @@ def main() -> None:
                 tool, match = found
                 reset_at = limit_detect.parse_reset(
                     match.group(1).strip(), dt.datetime.now())
+                require_clear = True
                 if reset_at is None:
                     reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
+                    require_clear = False
                     log(f"[{pane_id}] ({tool}) couldn't parse reset from "
                         f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
                 threading.Thread(
-                    target=_resume_then_cool, args=(pane_id, reset_at, tool),
+                    target=_resume_then_cool,
+                    args=(pane_id, reset_at, tool, require_clear),
                     daemon=True,
                 ).start()
             else:
