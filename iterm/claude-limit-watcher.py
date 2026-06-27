@@ -30,15 +30,15 @@ Setup:
      (it also auto-starts on every iTerm2 launch).
 
 Configuration (set for the GUI app via `launchctl setenv`, then restart iTerm2):
-  CLAUDE_RESUME_TEXT     text typed to resume a session
+  AUTORESUME_TEXT     text typed to resume a session
                          (default "** USAGE LIMIT RESET, RESUME SESSION **")
-  CLAUDE_RESUME_DRY_RUN  "1" = log what it WOULD do, send nothing      (default 0)
-  CLAUDE_RESUME_CUSHION  seconds to wait past the reset time           (default 8)
-  CLAUDE_RESUME_MAX_WAIT cap on how long it will wait, seconds     (default 28800)
-  CLAUDE_RESUME_FALLBACK if the reset time can't be parsed, retry after (default 900)
-  CLAUDE_RESUME_MATCH    only watch sessions whose command matches this
+  AUTORESUME_DRY_RUN  "1" = log what it WOULD do, send nothing      (default 0)
+  AUTORESUME_CUSHION  seconds to wait past the reset time           (default 8)
+  AUTORESUME_MAX_WAIT cap on how long it will wait, seconds     (default 28800)
+  AUTORESUME_FALLBACK if the reset time can't be parsed, retry after (default 900)
+  AUTORESUME_MATCH    only watch sessions whose command matches this
                          substring; "" = watch every session      (default "")
-  CLAUDE_RESUME_LOG      log file path     (default ~/.claude/iterm-limit-watcher.log)
+  AUTORESUME_LOG      log file path     (default ~/.claude/iterm-limit-watcher.log)
 
 Unofficial community tool. Not affiliated with Anthropic or OpenAI. MIT licensed.
 https://github.com/StylesDevelopments/claude-autoresume
@@ -67,15 +67,15 @@ VERSION = limit_detect.VERSION
 
 # ── Configuration (read once at daemon start) ────────────────────────────────
 RESUME_TEXT = os.environ.get(
-    "CLAUDE_RESUME_TEXT", "** USAGE LIMIT RESET, RESUME SESSION **"
+    "AUTORESUME_TEXT", "** USAGE LIMIT RESET, RESUME SESSION **"
 )
-DRY_RUN = os.environ.get("CLAUDE_RESUME_DRY_RUN", "0") == "1"
-CUSHION_SECS = int(os.environ.get("CLAUDE_RESUME_CUSHION", "8"))
-MAX_WAIT_SECS = int(os.environ.get("CLAUDE_RESUME_MAX_WAIT", str(8 * 3600)))
-FALLBACK_SECS = int(os.environ.get("CLAUDE_RESUME_FALLBACK", "900"))
-MATCH_COMMAND = os.environ.get("CLAUDE_RESUME_MATCH", "")  # "" = watch all sessions
+DRY_RUN = os.environ.get("AUTORESUME_DRY_RUN", "0") == "1"
+CUSHION_SECS = int(os.environ.get("AUTORESUME_CUSHION", "8"))
+MAX_WAIT_SECS = int(os.environ.get("AUTORESUME_MAX_WAIT", str(8 * 3600)))
+FALLBACK_SECS = int(os.environ.get("AUTORESUME_FALLBACK", "900"))
+MATCH_COMMAND = os.environ.get("AUTORESUME_MATCH", "")  # "" = watch all sessions
 LOG_PATH = os.path.expanduser(
-    os.environ.get("CLAUDE_RESUME_LOG", "~/.claude/iterm-limit-watcher.log")
+    os.environ.get("AUTORESUME_LOG", "~/.claude/iterm-limit-watcher.log")
 )
 
 

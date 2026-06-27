@@ -23,15 +23,15 @@ Run it:
     tail -f ~/.claude/tmux-limit-watcher.log
 
 Configuration (environment variables):
-  CLAUDE_RESUME_TEXT     text sent to resume a pane
+  AUTORESUME_TEXT     text sent to resume a pane
                          (default "** USAGE LIMIT RESET, RESUME SESSION **")
-  CLAUDE_RESUME_DRY_RUN  "1" = log what it WOULD do, send nothing      (default 0)
-  CLAUDE_RESUME_POLL     seconds between pane scans                    (default 20)
-  CLAUDE_RESUME_CUSHION  seconds to wait past the reset time           (default 8)
-  CLAUDE_RESUME_MAX_WAIT cap on how long it will wait, seconds     (default 28800)
-  CLAUDE_RESUME_FALLBACK if the reset time can't be parsed, retry after (default 900)
-  CLAUDE_RESUME_LOG      log file path      (default ~/.claude/tmux-limit-watcher.log)
-  CLAUDE_RESUME_TMUX     path to the tmux binary                   (default: tmux)
+  AUTORESUME_DRY_RUN  "1" = log what it WOULD do, send nothing      (default 0)
+  AUTORESUME_POLL     seconds between pane scans                    (default 20)
+  AUTORESUME_CUSHION  seconds to wait past the reset time           (default 8)
+  AUTORESUME_MAX_WAIT cap on how long it will wait, seconds     (default 28800)
+  AUTORESUME_FALLBACK if the reset time can't be parsed, retry after (default 900)
+  AUTORESUME_LOG      log file path      (default ~/.claude/tmux-limit-watcher.log)
+  AUTORESUME_TMUX     path to the tmux binary                   (default: tmux)
 
 Unofficial community tool. Not affiliated with Anthropic or OpenAI. MIT licensed.
 https://github.com/StylesDevelopments/claude-autoresume
@@ -55,17 +55,17 @@ import limit_detect  # noqa: E402
 VERSION = limit_detect.VERSION
 
 RESUME_TEXT = os.environ.get(
-    "CLAUDE_RESUME_TEXT", "** USAGE LIMIT RESET, RESUME SESSION **"
+    "AUTORESUME_TEXT", "** USAGE LIMIT RESET, RESUME SESSION **"
 )
-DRY_RUN = os.environ.get("CLAUDE_RESUME_DRY_RUN", "0") == "1"
-POLL_SECS = int(os.environ.get("CLAUDE_RESUME_POLL", "20"))
-CUSHION_SECS = int(os.environ.get("CLAUDE_RESUME_CUSHION", "8"))
-MAX_WAIT_SECS = int(os.environ.get("CLAUDE_RESUME_MAX_WAIT", str(8 * 3600)))
-FALLBACK_SECS = int(os.environ.get("CLAUDE_RESUME_FALLBACK", "900"))
+DRY_RUN = os.environ.get("AUTORESUME_DRY_RUN", "0") == "1"
+POLL_SECS = int(os.environ.get("AUTORESUME_POLL", "20"))
+CUSHION_SECS = int(os.environ.get("AUTORESUME_CUSHION", "8"))
+MAX_WAIT_SECS = int(os.environ.get("AUTORESUME_MAX_WAIT", str(8 * 3600)))
+FALLBACK_SECS = int(os.environ.get("AUTORESUME_FALLBACK", "900"))
 LOG_PATH = os.path.expanduser(
-    os.environ.get("CLAUDE_RESUME_LOG", "~/.claude/tmux-limit-watcher.log")
+    os.environ.get("AUTORESUME_LOG", "~/.claude/tmux-limit-watcher.log")
 )
-TMUX = os.environ.get("CLAUDE_RESUME_TMUX", "tmux")
+TMUX = os.environ.get("AUTORESUME_TMUX", "tmux")
 
 
 def log(msg: str) -> None:

@@ -1,46 +1,54 @@
 #!/usr/bin/env bash
 #
-# claude-autoresume — keep a Claude Code job alive across usage-limit resets.
+# claude-autoresume — keep a Claude Code or Codex job alive across usage limits.
 #
-# Claude Code has no built-in "wait for my limit to reset and carry on" feature.
-# This wrapper runs Claude Code headlessly and, whenever it stops because you hit
-# a 5-hour / weekly usage limit (or a transient rate-limit/overload), waits and
-# retries automatically — resuming the SAME session — until the work is done.
+# Neither Claude Code nor Codex has a built-in "wait for my limit to reset and
+# carry on" feature. This wrapper runs the agent headlessly and, on a usage/rate
+# limit, waits and resumes the SAME session automatically until the job is done.
+# Real (non-limit) errors fail fast so a genuine bug doesn't loop.
 #
-# Unofficial community tool. Not affiliated with or endorsed by Anthropic.
-# MIT licensed. https://github.com/StylesDevelopments/claude-autoresume
+# Unofficial community tool. Not affiliated with Anthropic or OpenAI. MIT.
+# https://github.com/StylesDevelopments/claude-autoresume
 #
 set -uo pipefail
 
-VERSION="1.1.0"
+VERSION="1.3.0"
 
-# ── Configuration (override any of these via environment variables) ──────────
+# ── Configuration (override via environment variables) ───────────────────────
+TOOL="${TOOL:-claude}"             # which agent: claude | codex
 INTERVAL="${INTERVAL:-300}"        # secs to wait after a limit hit before resuming
 ERROR_WAIT="${ERROR_WAIT:-15}"     # secs to wait between non-limit retries
 MAX_ERRORS="${MAX_ERRORS:-3}"      # consecutive non-limit failures before bailing
-RESUME="${RESUME:-0}"              # 1 = also add --continue on the very first run
+RESUME="${RESUME:-0}"              # 1 = resume the previous session on the first run
 KEEP_GOING="${KEEP_GOING:-0}"      # 1 = keep nudging until the agent prints the sentinel
 MAX_STALL="${MAX_STALL:-25}"       # KEEP_GOING: max exit-0-without-sentinel rounds
 LOG="${LOG:-$HOME/.claude/autoresume.log}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}" # path to the claude binary
+CODEX_BIN="${CODEX_BIN:-codex}"    # path to the codex binary
 SENTINEL="<<TASK_COMPLETE>>"
 
 # ── Limit detection ──────────────────────────────────────────────────────────
 # A run that exits non-zero AND whose output matches this regex is treated as a
 # usage/rate limit: we wait $INTERVAL and resume, indefinitely. Anything else is
-# treated as a real failure (retried $MAX_ERRORS times, then we bail).
-# Tune this if Claude Code's wording ever changes, or override via $LIMIT_REGEX.
-LIMIT_REGEX="${LIMIT_REGEX:-usage limit|5-hour limit|weekly limit|limit reached|limit will reset|reset[s]? at|rate[ _-]?limit|rate_limit|\b429\b|too many requests|overloaded|\b529\b}"
+# treated as a real failure (retried $MAX_ERRORS times, then we bail). Covers
+# both Claude Code and Codex wording. Override via $LIMIT_REGEX.
+LIMIT_REGEX="${LIMIT_REGEX:-usage limit|session limit|weekly limit|5-hour limit|limit reached|limit will reset|reset[s]? at|try again (at|later)|rate[ _-]?limit|rate_limit|\b429\b|too many requests|overloaded|\b529\b}"
 
 print_help() {
   cat <<'EOF'
-claude-autoresume — keep a Claude Code job alive across usage-limit resets.
+claude-autoresume — keep a Claude Code or Codex job alive across usage limits.
 
 USAGE
-  claude-autoresume "your task prompt"   Run a task, auto-resume across limits
-  claude-autoresume                      Resume the last session and nudge it on
-  claude-autoresume --help               Show this help
-  claude-autoresume --version            Show the version
+  claude-autoresume "your task prompt"          Run a task (Claude), auto-resume
+  claude-autoresume --codex "your task prompt"  Run a task with Codex
+  claude-autoresume --tool codex "task"         Same, explicit form
+  claude-autoresume                             Resume the last session, nudge it on
+  claude-autoresume --help | --version
+
+TOOLS
+  --claude        use Claude Code   (default; runs: claude -p / claude --continue)
+  --codex         use Codex         (runs: codex exec / codex exec resume --last)
+  --tool <name>   claude | codex    (or set TOOL=codex in the environment)
 
 LEAVE IT RUNNING UNATTENDED
   nohup claude-autoresume "big task" >/dev/null 2>&1 &
@@ -52,28 +60,42 @@ WHAT IT DOES EACH ROUND
   exit != 0 + other error    Retry up to $MAX_ERRORS times, then give up.
 
 ENVIRONMENT VARIABLES (all optional)
+  TOOL         claude | codex                                  (default claude)
   INTERVAL     Secs to wait after a limit hit before resuming        (default 300)
   ERROR_WAIT   Secs to wait between non-limit retries                (default 15)
   MAX_ERRORS   Consecutive non-limit failures before bailing         (default 3)
-  RESUME       1 = add --continue on the first run too               (default 0)
-  KEEP_GOING   1 = keep nudging the agent until it prints
+  RESUME       1 = resume the previous session on the first run too  (default 0)
+  KEEP_GOING   1 = keep nudging until the agent prints
                <<TASK_COMPLETE>> (for long multi-turn jobs)          (default 0)
   MAX_STALL    KEEP_GOING: max exit-0-without-sentinel rounds        (default 25)
   LOG          Log file path                   (default ~/.claude/autoresume.log)
   CLAUDE_BIN   Path to the claude binary                          (default: claude)
+  CODEX_BIN    Path to the codex binary                            (default: codex)
   LIMIT_REGEX  Override the limit-detection regex (advanced)
 
-Unofficial community tool. Not affiliated with Anthropic.
+Unofficial community tool. Not affiliated with Anthropic or OpenAI.
 https://github.com/StylesDevelopments/claude-autoresume
 EOF
 }
 
-case "${1:-}" in
-  -h|--help)    print_help; exit 0 ;;
-  -V|--version) echo "claude-autoresume $VERSION"; exit 0 ;;
-esac
+# ── Parse args: flags in any order, first non-flag is the prompt ─────────────
+PROMPT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)    print_help; exit 0 ;;
+    -V|--version) echo "claude-autoresume $VERSION"; exit 0 ;;
+    --claude)     TOOL="claude"; shift ;;
+    --codex)      TOOL="codex"; shift ;;
+    -t|--tool)    TOOL="${2:-}"; shift 2 ;;
+    *)            PROMPT="$1"; shift ;;
+  esac
+done
 
-PROMPT="${1:-}"
+case "$TOOL" in
+  claude) BIN="$CLAUDE_BIN" ;;
+  codex)  BIN="$CODEX_BIN" ;;
+  *) echo "claude-autoresume: unknown tool '$TOOL' (use claude or codex)" >&2; exit 2 ;;
+esac
 
 if [[ "$KEEP_GOING" == "1" ]]; then
   CONTINUE_PROMPT="Continue the previous task exactly where you left off and keep going until the whole thing is finished. Only when the ENTIRE task is fully complete and verified, output the exact line ${SENTINEL} on its own line."
@@ -85,9 +107,32 @@ mkdir -p "$(dirname "$LOG")"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG" >&2; }
 
-command -v "$CLAUDE_BIN" >/dev/null 2>&1 || {
-  echo "claude-autoresume: '$CLAUDE_BIN' not found in PATH (set CLAUDE_BIN=/path/to/claude)" >&2
+command -v "$BIN" >/dev/null 2>&1 || {
+  echo "claude-autoresume: '$BIN' not found (set CLAUDE_BIN/CODEX_BIN or add $TOOL to PATH)" >&2
   exit 127
+}
+
+# Build the argv for a run. $1 = "first" | "resume".
+build_args() {
+  case "$TOOL" in
+    claude)
+      if [[ "$1" == "first" && -n "$PROMPT" ]]; then
+        ARGS=(-p "$PROMPT")
+        [[ "$RESUME" == "1" ]] && ARGS=(--continue "${ARGS[@]}")
+      else
+        ARGS=(--continue -p "$CONTINUE_PROMPT")
+      fi
+      ;;
+    codex)
+      if [[ "$1" == "first" && -n "$PROMPT" && "$RESUME" != "1" ]]; then
+        ARGS=(exec "$PROMPT")
+      elif [[ "$1" == "first" && -n "$PROMPT" ]]; then
+        ARGS=(exec resume --last "$PROMPT")
+      else
+        ARGS=(exec resume --last "$CONTINUE_PROMPT")
+      fi
+      ;;
+  esac
 }
 
 trap 'log "Interrupted — stopping."; exit 130' INT TERM
@@ -95,24 +140,18 @@ trap 'log "Interrupted — stopping."; exit 130' INT TERM
 errors=0
 stalls=0
 first=1
-log "autoresume $VERSION start (interval=${INTERVAL}s, keep_going=${KEEP_GOING}, cwd=$PWD)."
+log "autoresume $VERSION start (tool=$TOOL, interval=${INTERVAL}s, keep_going=${KEEP_GOING}, cwd=$PWD)."
 
 while true; do
-  if [[ $first -eq 1 && -n "$PROMPT" ]]; then
-    args=(-p "$PROMPT")
-    if [[ "$RESUME" == "1" ]]; then
-      args=(--continue "${args[@]}")
-      log "Run: claude --continue -p \"<prompt>\""
-    else
-      log "Run: claude -p \"<prompt>\""
-    fi
+  if [[ $first -eq 1 ]]; then
+    build_args first
   else
-    args=(--continue -p "$CONTINUE_PROMPT")
-    log "Run: claude --continue (resume)"
+    build_args resume
   fi
+  log "Run: $BIN ${ARGS[0]} … ($TOOL)"
 
   out="$(mktemp)"
-  "$CLAUDE_BIN" "${args[@]}" 2>&1 | tee -a "$LOG" | tee "$out"
+  "$BIN" "${ARGS[@]}" 2>&1 | tee -a "$LOG" | tee "$out"
   rc=${PIPESTATUS[0]}
   first=0
 
