@@ -51,8 +51,8 @@ Watch it work:
   tail -f ~/.claude/iterm-limit-watcher.log
 
 Test SAFELY first (logs what it WOULD do, sends no keystrokes):
-  launchctl setenv CLAUDE_RESUME_DRY_RUN 1
+  launchctl setenv AUTORESUME_DRY_RUN 1
   # then fully quit & reopen iTerm2 so the daemon picks up the env var.
-  # Remove it later with:  launchctl unsetenv CLAUDE_RESUME_DRY_RUN
+  # Remove it later with:  launchctl unsetenv AUTORESUME_DRY_RUN
 
 EOF

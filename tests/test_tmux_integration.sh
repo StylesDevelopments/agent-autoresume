@@ -42,8 +42,8 @@ tmux send-keys -t "$SESSION" -l \
   "You've hit your usage limit. Try again at Jan 1st, 2020 12:00 AM."
 
 # Run the real watcher (NOT dry-run) in the background.
-CLAUDE_RESUME_DRY_RUN=0 CLAUDE_RESUME_POLL=1 CLAUDE_RESUME_CUSHION=0 \
-  CLAUDE_RESUME_LOG="$LOG" \
+AUTORESUME_DRY_RUN=0 AUTORESUME_POLL=1 AUTORESUME_CUSHION=0 \
+  AUTORESUME_LOG="$LOG" \
   python3 "$WATCHER" >/dev/null 2>&1 &
 WATCHER_PID=$!
 

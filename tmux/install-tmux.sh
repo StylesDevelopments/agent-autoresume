@@ -8,7 +8,7 @@
 # never launch it by hand; just work inside tmux.
 #
 # Test safely first (logs what it would do, sends nothing):
-#   curl -fsSL …/install-tmux.sh | CLAUDE_RESUME_DRY_RUN=1 bash
+#   curl -fsSL …/install-tmux.sh | AUTORESUME_DRY_RUN=1 bash
 #
 set -euo pipefail
 
@@ -60,8 +60,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
   mkdir -p "$HOME/Library/LaunchAgents"
 
   DRYRUN_ENV=""
-  if [[ "${CLAUDE_RESUME_DRY_RUN:-0}" == "1" ]]; then
-    DRYRUN_ENV="    <key>CLAUDE_RESUME_DRY_RUN</key><string>1</string>"
+  if [[ "${AUTORESUME_DRY_RUN:-0}" == "1" ]]; then
+    DRYRUN_ENV="    <key>AUTORESUME_DRY_RUN</key><string>1</string>"
   fi
 
   cat > "$PLIST" <<EOF
@@ -93,9 +93,9 @@ EOF
   echo
   echo "✅ Installed and started a login agent ($LABEL)."
   echo "   It's running now and auto-starts at every login — you never launch it."
-  if [[ "${CLAUDE_RESUME_DRY_RUN:-0}" == "1" ]]; then
+  if [[ "${AUTORESUME_DRY_RUN:-0}" == "1" ]]; then
     echo "   (DRY-RUN mode: it logs what it would do but sends nothing. Re-run"
-    echo "    the installer without CLAUDE_RESUME_DRY_RUN=1 to go live.)"
+    echo "    the installer without AUTORESUME_DRY_RUN=1 to go live.)"
   fi
 else
   echo

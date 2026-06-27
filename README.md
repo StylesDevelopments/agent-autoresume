@@ -42,7 +42,7 @@ claude-autoresume --codex "big task"    # Codex
 
 A watcher reads your terminal screen, spots the limit banner (`You've hit your … limit · resets 3:45pm`, or Codex `… try again at 3:45 PM`), waits until the reset, then types a clear marker — `** USAGE LIMIT RESET, RESUME SESSION **` — back into that session. The iTerm2 watcher uses iTerm2's API; the tmux watcher uses `capture-pane`/`send-keys` — **neither needs macOS Accessibility/screen-recording permission**.
 
-Tune via env vars (see each script's header or `--help`). Test safely first with `CLAUDE_RESUME_DRY_RUN=1` (logs what it would do, sends nothing).
+Tune via env vars (see each script's header or `--help`). Test safely first with `AUTORESUME_DRY_RUN=1` (logs what it would do, sends nothing).
 
 **Caveat:** it's screen-scraping, so it depends on the banner wording — if a tool changes it, that's a one-line regex tweak in [`limit_detect.py`](./limit_detect.py) (covered by tests + CI).
 
