@@ -1,9 +1,9 @@
 """
-Shared limit-banner detection + reset-time parsing for claude-autoresume.
+Shared limit-banner detection + reset-time parsing for agent-autoresume.
 
 Pure, dependency-free, terminal-agnostic. Imported by both watchers so the
 detection logic can never drift between backends:
-  - iterm/claude-limit-watcher.py  (iTerm2 Python API)
+  - iterm/agent-limit-watcher.py  (iTerm2 Python API)
   - tmux/tmux-limit-watcher.py     (tmux capture-pane / send-keys)
 
 Supported banners:
@@ -16,7 +16,7 @@ Supported banners:
 import datetime as dt
 import re
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # One (tool, regex) per supported CLI. Each regex captures the "when" text after
 # the limit phrase, which parse_reset() turns into a datetime. Tune here if a

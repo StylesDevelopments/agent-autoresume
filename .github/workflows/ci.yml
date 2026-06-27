@@ -20,18 +20,29 @@ jobs:
 
       - name: Shell syntax check (bash -n)
         run: |
-          for f in claude-autoresume.sh install.sh \
+          for f in agent-autoresume.sh install.sh \
                    iterm/install-iterm.sh tmux/install-tmux.sh \
                    tests/test_tmux_integration.sh; do
             echo "bash -n $f"
             bash -n "$f"
           done
 
+      - name: No bash-4-only syntax (macOS ships bash 3.2)
+        run: |
+          if grep -rnE '\$\{[A-Za-z_]+(\^\^|,,|\^|,)' \
+               agent-autoresume.sh install.sh \
+               iterm/install-iterm.sh tmux/install-tmux.sh \
+               tests/test_tmux_integration.sh; then
+            echo "::error::bash-4-only parameter expansion found (breaks macOS bash 3.2)"
+            exit 1
+          fi
+          echo "clean"
+
       - name: shellcheck (advisory)
         continue-on-error: true
         run: |
           sudo apt-get install -y shellcheck
-          shellcheck claude-autoresume.sh install.sh \
+          shellcheck agent-autoresume.sh install.sh \
                      iterm/install-iterm.sh tmux/install-tmux.sh \
                      tests/test_tmux_integration.sh
 
@@ -39,7 +50,7 @@ jobs:
         run: |
           python3 -m py_compile \
             limit_detect.py \
-            iterm/claude-limit-watcher.py \
+            iterm/agent-limit-watcher.py \
             tmux/tmux-limit-watcher.py
 
       - name: Unit tests (detection and parsing)
@@ -49,3 +60,43 @@ jobs:
 
       - name: "Integration test (tmux: real pane, real resume)"
         run: bash tests/test_tmux_integration.sh
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install tmux
+        run: brew install tmux
+
+      - name: Bash 3.2 syntax + wrapper smoke (system /bin/bash)
+        run: |
+          /bin/bash --version | head -1
+          for f in agent-autoresume.sh install.sh \
+                   iterm/install-iterm.sh tmux/install-tmux.sh \
+                   tests/test_tmux_integration.sh; do
+            /bin/bash -n "$f"
+          done
+          /bin/bash agent-autoresume.sh --version
+          /bin/bash agent-autoresume.sh --help >/dev/null
+          /bin/bash agent-autoresume.sh --tool >/dev/null 2>&1; test $? -eq 2
+          /bin/bash agent-autoresume.sh --tool bogus xyz >/dev/null 2>&1; test $? -eq 2
+
+      - name: Compile + unit tests
+        run: |
+          python3 -m py_compile \
+            limit_detect.py iterm/agent-limit-watcher.py tmux/tmux-limit-watcher.py
+          python3 tests/test_limit_detect.py
+          python3 iterm/test_limit_watcher.py
+
+      - name: "Integration test (tmux: real pane, real resume)"
+        run: bash tests/test_tmux_integration.sh
+
+      - name: Generated launchd plist is valid
+        run: |
+          AUTORESUME_DRY_RUN=1 bash tmux/install-tmux.sh || true
+          plutil -lint "$HOME/Library/LaunchAgents/com.stylesdevelopments.agent-autoresume-tmux.plist"

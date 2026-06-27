@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-claude-limit-watcher — auto-resume Claude Code or Codex in iTerm2 on a limit reset.
+agent-limit-watcher — auto-resume Claude Code or Codex in iTerm2 on a limit reset.
 
 An iTerm2 Python API daemon. It watches your terminal sessions, and when a CLI
 prints its usage-limit banner — e.g.
@@ -26,7 +26,7 @@ Setup:
        ~/Library/Application Support/iTerm2/Scripts/AutoLaunch/
      (the installer does this for you)
   2. iTerm2 → Settings → General → Magic → enable "Enable Python API".
-  3. Start it: iTerm2 menu → Scripts → AutoLaunch → claude-limit-watcher.py
+  3. Start it: iTerm2 menu → Scripts → AutoLaunch → agent-limit-watcher.py
      (it also auto-starts on every iTerm2 launch).
 
 Configuration (set for the GUI app via `launchctl setenv`, then restart iTerm2):
@@ -41,8 +41,10 @@ Configuration (set for the GUI app via `launchctl setenv`, then restart iTerm2):
   AUTORESUME_LOG      log file path     (default ~/.claude/iterm-limit-watcher.log)
 
 Unofficial community tool. Not affiliated with Anthropic or OpenAI. MIT licensed.
-https://github.com/StylesDevelopments/claude-autoresume
+https://github.com/StylesDevelopments/agent-autoresume
 """
+
+from __future__ import annotations
 
 import asyncio
 import datetime as dt
@@ -146,29 +148,40 @@ async def resume_when_ready(session, reset_at: dt.datetime, tool: str) -> None:
 
 
 async def watch(session) -> None:
-    """One streamer per session: detect the banner, arm a single resume, re-arm
-    only after the banner clears (so we never double-fire on the same event)."""
+    """One streamer per session. Schedule exactly one resume per limit episode:
+    ignore further detections while a resume is pending, and re-arm only after
+    the banner has cleared — so a flickering / redrawn TUI can't queue multiple
+    resumes for the same event."""
     if not await session_matches(session):
         return
-    armed = False
+    resume_pending = False
+    cooling_down = False  # resume finished; wait for the banner to clear
+
+    def _on_done(_task) -> None:
+        nonlocal resume_pending, cooling_down
+        resume_pending = False
+        cooling_down = True
+
     async with session.get_screen_streamer(want_contents=True) as streamer:
         while True:
             contents = await streamer.async_get()
             if contents is None:
                 continue
             found = find_limit(contents)
-            if found and not armed:
-                armed = True
-                tool, match = found
-                reset_at = limit_detect.parse_reset(
-                    match.group(1).strip(), dt.datetime.now())
-                if reset_at is None:
-                    reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
-                    log(f"[{session.session_id}] ({tool}) couldn't parse reset from "
-                        f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
-                asyncio.create_task(resume_when_ready(session, reset_at, tool))
-            elif not found:
-                armed = False
+            if found:
+                if not resume_pending and not cooling_down:
+                    resume_pending = True
+                    tool, match = found
+                    reset_at = limit_detect.parse_reset(
+                        match.group(1).strip(), dt.datetime.now())
+                    if reset_at is None:
+                        reset_at = dt.datetime.now() + dt.timedelta(seconds=FALLBACK_SECS)
+                        log(f"[{session.session_id}] ({tool}) couldn't parse reset from "
+                            f"{match.group(1).strip()!r}; will retry in {FALLBACK_SECS}s")
+                    task = asyncio.create_task(resume_when_ready(session, reset_at, tool))
+                    task.add_done_callback(_on_done)
+            else:
+                cooling_down = False
 
 
 async def main(connection) -> None:
@@ -210,14 +223,14 @@ async def main(connection) -> None:
     )
 
     scope = "all sessions" if not MATCH_COMMAND else f"command~{MATCH_COMMAND!r}"
-    log(f"claude-limit-watcher {VERSION} running "
+    log(f"agent-limit-watcher {VERSION} running "
         f"(resume_text={RESUME_TEXT!r}, dry_run={DRY_RUN}, watching {scope})")
 
 
 if __name__ == "__main__":
     if iterm2 is None:
         raise SystemExit(
-            "claude-limit-watcher requires the iTerm2 Python API. "
+            "agent-limit-watcher requires the iTerm2 Python API. "
             "Run it from iTerm2 (Scripts → AutoLaunch), not a bare shell."
         )
     iterm2.run_forever(main)

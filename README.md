@@ -1,6 +1,6 @@
-# claude-autoresume
+# agent-autoresume
 
-[![CI](https://github.com/StylesDevelopments/claude-autoresume/actions/workflows/ci.yml/badge.svg)](https://github.com/StylesDevelopments/claude-autoresume/actions/workflows/ci.yml)
+[![CI](https://github.com/StylesDevelopments/agent-autoresume/actions/workflows/ci.yml/badge.svg)](https://github.com/StylesDevelopments/agent-autoresume/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 **Stop babysitting AI coding-agent usage limits.** When [Claude Code](https://www.claude.com/product/claude-code) or [Codex](https://github.com/openai/codex) hits your 5-hour / weekly limit it just stops and waits for you to resubmit. These small, dependency-free tools wait out the limit and resume the work for you.
@@ -21,21 +21,21 @@ The two watchers are **set-and-forget**: install once, they auto-start at login 
 
 **iTerm2:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/iterm/install-iterm.sh | bash
+curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume/main/iterm/install-iterm.sh | bash
 ```
 Then enable iTerm2 → Settings → General → Magic → **Enable Python API** and start it once from **Scripts → AutoLaunch** (it auto-starts every launch after that).
 
 **Terminal.app / any terminal (tmux):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/tmux/install-tmux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume/main/tmux/install-tmux.sh | bash
 ```
 Installs a launchd login agent that runs forever. Just run your agents inside `tmux`. Needs `tmux` + `python3`.
 
 **Headless wrapper** (unattended jobs):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/install.sh | bash
-claude-autoresume "big task"            # Claude Code
-claude-autoresume --codex "big task"    # Codex
+curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume/main/install.sh | bash
+agent-autoresume "big task"            # Claude Code
+agent-autoresume --codex "big task"    # Codex
 ```
 
 ## How it works

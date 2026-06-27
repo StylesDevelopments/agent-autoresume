@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Installer for the tmux limit-watcher.
-#   curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/claude-autoresume/main/tmux/install-tmux.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume/main/tmux/install-tmux.sh | bash
 #
 # On macOS it registers a launchd login agent so the watcher runs forever and
 # auto-starts at every login — set-and-forget, like the iTerm2 watcher. You
@@ -12,17 +12,24 @@
 #
 set -euo pipefail
 
-REPO="StylesDevelopments/claude-autoresume"
+REPO="StylesDevelopments/agent-autoresume"
 BASE="https://raw.githubusercontent.com/${REPO}/main"
-SHARE="$HOME/.local/share/claude-autoresume"
+SHARE="$HOME/.local/share/agent-autoresume"
 BIN="$HOME/.local/bin"
-LAUNCH="$BIN/claude-autoresume-tmux"
-LABEL="com.stylesdevelopments.claude-autoresume-tmux"
+LAUNCH="$BIN/agent-autoresume-tmux"
+LABEL="com.stylesdevelopments.agent-autoresume-tmux"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 mkdir -p "$SHARE" "$BIN" "$HOME/.claude"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
+# Only treat this as a local clone when we're genuinely running from a script
+# file. Under `curl | bash`, $0 is "bash" and its dirname is the caller's CWD —
+# which we must NOT copy from. In that case SCRIPT_DIR stays empty and get()
+# downloads from $BASE.
+SCRIPT_DIR=""
+if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
+fi
 
 # get <raw-path> <local-clone-path-relative-to-this-script> <dest>
 get() {
@@ -50,13 +57,18 @@ exec python3 "$SHARE/tmux-limit-watcher.py" "\$@"
 EOF
 chmod +x "$LAUNCH"
 
+PYTHON="$(command -v python3 || echo /usr/bin/python3)"
+
 if ! command -v tmux >/dev/null 2>&1; then
-  echo "note: tmux is not installed yet — 'brew install tmux'"
+  echo
+  echo "⚠️  tmux is not installed — files are in place but I won't start the agent."
+  echo "    Install tmux ('brew install tmux') then re-run this installer; a"
+  echo "    KeepAlive agent with no tmux would just fail-loop."
+  exit 0
 fi
 
 if [[ "$(uname)" == "Darwin" ]]; then
-  PYTHON="$(command -v python3 || echo /usr/bin/python3)"
-  TMUX_DIR="$(dirname "$(command -v tmux 2>/dev/null || echo /opt/homebrew/bin/tmux)")"
+  TMUX_DIR="$(dirname "$(command -v tmux)")"
   mkdir -p "$HOME/Library/LaunchAgents"
 
   DRYRUN_ENV=""
