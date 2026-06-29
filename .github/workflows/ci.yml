@@ -15,14 +15,14 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux + zsh
+        run: sudo apt-get update && sudo apt-get install -y tmux zsh
 
       - name: Shell syntax check (bash -n)
         run: |
           for f in agent-autoresume.sh install.sh \
                    iterm/install-iterm.sh tmux/install-tmux.sh \
-                   tests/test_tmux_integration.sh; do
+                   tests/test_tmux_integration.sh tests/test_shell_wrap.sh; do
             echo "bash -n $f"
             bash -n "$f"
           done
@@ -32,7 +32,7 @@ jobs:
           if grep -rnE '\$\{[A-Za-z_]+(\^\^|,,|\^|,)' \
                agent-autoresume.sh install.sh \
                iterm/install-iterm.sh tmux/install-tmux.sh \
-               tests/test_tmux_integration.sh; then
+               tests/test_tmux_integration.sh tests/test_shell_wrap.sh; then
             echo "::error::bash-4-only parameter expansion found (breaks macOS bash 3.2)"
             exit 1
           fi
@@ -44,7 +44,7 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck agent-autoresume.sh install.sh \
                      iterm/install-iterm.sh tmux/install-tmux.sh \
-                     tests/test_tmux_integration.sh
+                     tests/test_tmux_integration.sh tests/test_shell_wrap.sh
 
       - name: Compile Python
         run: |
@@ -60,6 +60,19 @@ jobs:
 
       - name: "Integration test (tmux: real pane, real resume)"
         run: bash tests/test_tmux_integration.sh
+
+      - name: "Shell-wrap unit test (zsh)"
+        run: bash tests/test_shell_wrap.sh
+
+      - name: "Opt-in shell-wrap installer is idempotent"
+        run: |
+          AUTORESUME_WRAP=1 bash tmux/install-tmux.sh
+          test -f "$HOME/.config/agent-autoresume/shell-wrap.zsh"
+          grep -qF "agent-autoresume/shell-wrap.zsh" "$HOME/.zshrc"
+          AUTORESUME_WRAP=1 bash tmux/install-tmux.sh   # second run must not double-source
+          n=$(grep -cF "agent-autoresume/shell-wrap.zsh" "$HOME/.zshrc")
+          [ "$n" -eq 1 ] || { echo "::error::shell-wrap sourced $n times (expected 1)"; exit 1; }
+          echo "idempotent: sourced exactly once"
 
   macos:
     runs-on: macos-latest
@@ -78,7 +91,7 @@ jobs:
           /bin/bash --version | head -1
           for f in agent-autoresume.sh install.sh \
                    iterm/install-iterm.sh tmux/install-tmux.sh \
-                   tests/test_tmux_integration.sh; do
+                   tests/test_tmux_integration.sh tests/test_shell_wrap.sh; do
             /bin/bash -n "$f"
           done
           /bin/bash agent-autoresume.sh --version
@@ -97,6 +110,9 @@ jobs:
 
       - name: "Integration test (tmux: real pane, real resume)"
         run: bash tests/test_tmux_integration.sh
+
+      - name: "Shell-wrap unit test (zsh)"
+        run: bash tests/test_shell_wrap.sh
 
       - name: Generated launchd plist is valid
         run: |
