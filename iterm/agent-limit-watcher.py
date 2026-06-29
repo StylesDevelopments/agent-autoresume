@@ -113,6 +113,19 @@ def find_limit(contents):
     return limit_detect.find_limit_in_text("\n".join(logical_lines(contents)))
 
 
+async def confirm_claude_limit_menu(session) -> None:
+    tag = " [DRY-RUN]" if DRY_RUN else ""
+    log(f"[{session.session_id}] (claude) limit menu detected; selecting default "
+        f"'Stop and wait for limit to reset'{tag}")
+    if DRY_RUN:
+        return
+    try:
+        await session.async_send_text("\r", suppress_broadcast=True)
+        log(f"[{session.session_id}] (claude) selected stop/wait option")
+    except Exception as exc:
+        log(f"[{session.session_id}] (claude) failed to send Enter: {exc}")
+
+
 async def session_matches(session) -> bool:
     if not MATCH_COMMAND:
         return True
@@ -136,9 +149,13 @@ async def resume_when_ready(session, reset_at: dt.datetime, tool: str) -> None:
     except Exception as exc:  # session closed while we waited
         log(f"[{session.session_id}] session gone before resume ({exc}); skipping")
         return
-    if find_limit(contents) is None:
+    found = find_limit(contents)
+    if found is None:
         log(f"[{session.session_id}] banner cleared before reset; skipping resume")
         return
+    if found[0] == "claude-menu":
+        await confirm_claude_limit_menu(session)
+        await asyncio.sleep(1)
     if DRY_RUN:
         log(f"[{session.session_id}] ({tool}) [DRY-RUN] would send {RESUME_TEXT!r} now")
         return
@@ -147,19 +164,6 @@ async def resume_when_ready(session, reset_at: dt.datetime, tool: str) -> None:
         log(f"[{session.session_id}] ({tool}) sent {RESUME_TEXT!r} — resumed")
     except Exception as exc:
         log(f"[{session.session_id}] failed to send resume text: {exc}")
-
-
-async def confirm_claude_limit_menu(session) -> None:
-    tag = " [DRY-RUN]" if DRY_RUN else ""
-    log(f"[{session.session_id}] (claude) limit menu detected; selecting default "
-        f"'Stop and wait for limit to reset'{tag}")
-    if DRY_RUN:
-        return
-    try:
-        await session.async_send_text("\r", suppress_broadcast=True)
-        log(f"[{session.session_id}] (claude) selected stop/wait option")
-    except Exception as exc:
-        log(f"[{session.session_id}] failed to confirm limit menu: {exc}")
 
 
 async def watch(session) -> None:
@@ -190,9 +194,7 @@ async def watch(session) -> None:
                     resume_pending = True
                     tool, match = found
                     if tool == "claude-menu":
-                        task = asyncio.create_task(confirm_claude_limit_menu(session))
-                        task.add_done_callback(_on_done(True))
-                        continue
+                        await confirm_claude_limit_menu(session)
                     reset_at = limit_detect.parse_reset(
                         match.group(1).strip(), dt.datetime.now())
                     require_clear = True

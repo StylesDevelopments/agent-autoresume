@@ -18,7 +18,23 @@ Supported banners:
 import datetime as dt
 import re
 
-VERSION = "1.4.2"
+VERSION = "1.4.3"
+
+# Whole-screen patterns that must win before per-line matching. Claude's
+# limit-choice menu often contains a parseable "You've hit..." banner on one line
+# and the actionable menu on later lines.
+SCREEN_PATTERNS = [
+    ("claude-menu", re.compile(
+        r"you'?ve hit your\b.*?\blimit\b.*?\breset[s]?\b\s*[:·\-]?\s*(.+?)"
+        r"\bwhat do you want to do\?.*?\bstop and wait for limit (?:to )?reset\b",
+        re.I,
+    )),
+    ("claude-menu", re.compile(
+        r"\busage\b.*?\blimit reached\b\s*\(\s*(reset[s]?.*?)\s*\)"
+        r".*?\bwhat do you want to do\?.*?\bstop and wait for limit (?:to )?reset\b",
+        re.I,
+    )),
+]
 
 # One (tool, regex) per supported CLI. Each regex captures the "when" text after
 # the limit phrase, which parse_reset() turns into a datetime. Tune here if a
@@ -115,6 +131,13 @@ def find_limit_in_text(text: str):
     The patterns are specific enough that the fallback stays false-positive-safe.
     """
     lines = text.split("\n")
+    candidates = (re.sub(r"\s+", " ", " ".join(lines)), text.replace("\n", ""))
+    for candidate in candidates:
+        for tool, pat in SCREEN_PATTERNS:
+            m = pat.search(candidate)
+            if m:
+                return tool, m
+
     for line in lines:
         for tool, pat in PATTERNS:
             m = pat.search(line)
@@ -123,7 +146,7 @@ def find_limit_in_text(text: str):
     # Two fallbacks cover common TUI renderers:
     #   joined: bordered/wrapped boxes that split phrases across grid rows
     #   dewrapped: tmux hard-wraps inside words, e.g. "r\nesets"
-    for candidate in (re.sub(r"\s+", " ", " ".join(lines)), text.replace("\n", "")):
+    for candidate in candidates:
         for tool, pat in PATTERNS:
             m = pat.search(candidate)
             if m:
