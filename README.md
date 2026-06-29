@@ -31,6 +31,12 @@ curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume
 ```
 Installs a launchd login agent that runs forever. Just run your agents inside `tmux`. Needs `tmux` + `python3`.
 
+*Don't want to remember to start tmux first?* Add `AUTORESUME_WRAP=1` (or pass `--wrap`) to also install a small opt-in zsh shim, so plain `claude` / `codex` auto-launch inside tmux in **any** terminal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume/main/tmux/install-tmux.sh | AUTORESUME_WRAP=1 bash
+```
+The shim passes through unwrapped for non-interactive runs (`-p`, `--version`, `exec`, piped output) and can be skipped per-invocation with `AUTORESUME_NO_WRAP=1`. Remove it by deleting the `source …/shell-wrap.zsh` line from your `~/.zshrc`.
+
 **Headless wrapper** (unattended jobs):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/StylesDevelopments/agent-autoresume/main/install.sh | bash
@@ -54,6 +60,7 @@ Tune via env vars (see each script's header or `--help`). Test safely first with
 python3 tests/test_limit_detect.py        # detection + reset-time parsing
 python3 iterm/test_limit_watcher.py       # iTerm soft-wrap + import wiring
 bash    tests/test_tmux_integration.sh    # end-to-end: real tmux pane, real resume
+bash    tests/test_shell_wrap.sh          # opt-in zsh shim: passthrough + quoting (needs zsh)
 ```
 CI runs all of the above (plus `bash -n`, `py_compile`, shellcheck) on every push and PR.
 

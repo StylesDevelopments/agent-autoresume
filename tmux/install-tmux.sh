@@ -7,10 +7,24 @@
 # auto-starts at every login — set-and-forget, like the iTerm2 watcher. You
 # never launch it by hand; just work inside tmux.
 #
+# Opt-in: pass --wrap (or AUTORESUME_WRAP=1) to also install a zsh shim that
+# auto-launches `claude` / `codex` inside tmux, so you don't have to remember to:
+#   curl -fsSL …/install-tmux.sh | AUTORESUME_WRAP=1 bash
+#
 # Test safely first (logs what it would do, sends nothing):
 #   curl -fsSL …/install-tmux.sh | AUTORESUME_DRY_RUN=1 bash
 #
 set -euo pipefail
+
+WRAP=0
+for arg in "$@"; do
+  case "$arg" in
+    --wrap) WRAP=1 ;;
+  esac
+done
+if [[ "${AUTORESUME_WRAP:-0}" == "1" ]]; then
+  WRAP=1
+fi
 
 REPO="StylesDevelopments/agent-autoresume"
 BASE="https://raw.githubusercontent.com/${REPO}/main"
@@ -42,6 +56,24 @@ get() {
   else
     echo "Error: need curl or wget to install." >&2
     exit 1
+  fi
+}
+
+# Opt-in (--wrap): install the zsh shim + source it from ~/.zshrc so `claude` /
+# `codex` auto-launch inside tmux. Idempotent — re-running never double-sources.
+install_shell_wrap() {
+  local cfg="$HOME/.config/agent-autoresume"
+  mkdir -p "$cfg"
+  get "tmux/shell-wrap.zsh" "shell-wrap.zsh" "$cfg/shell-wrap.zsh"
+  local rc="${ZDOTDIR:-$HOME}/.zshrc"
+  if [[ -f "$rc" ]] && grep -qF "agent-autoresume/shell-wrap.zsh" "$rc"; then
+    echo "✅ shell wrap already sourced in $rc"
+  else
+    {
+      printf '\n# Auto-run claude/codex inside tmux so agent-autoresume can resume them on a limit reset\n'
+      printf '%s\n' '[ -f "$HOME/.config/agent-autoresume/shell-wrap.zsh" ] && source "$HOME/.config/agent-autoresume/shell-wrap.zsh"'
+    } >> "$rc"
+    echo "✅ added shell wrap source to $rc (restart your shell, or: source $rc)"
   fi
 }
 
@@ -116,12 +148,25 @@ else
   echo "   (or a systemd --user unit running: $PYTHON $SHARE/tmux-limit-watcher.py)"
 fi
 
-cat <<EOF
+if [[ "$WRAP" == "1" ]]; then
+  install_shell_wrap
+  cat <<EOF
+
+Auto-wrap is on: just run \`claude\` / \`codex\` in any terminal and they launch
+inside tmux for you (no need to start tmux first). Skip once with AUTORESUME_NO_WRAP=1.
+
+Watch it:   tail -f ~/.claude/tmux-limit-watcher.log
+Stop it:    launchctl unload "$PLIST"
+EOF
+else
+  cat <<EOF
 
 Now just work inside tmux as normal — the watcher handles the rest:
   tmux
   claude          # ...or: codex
 
+Tip: re-run with --wrap (or AUTORESUME_WRAP=1) to auto-launch claude/codex in tmux.
 Watch it:   tail -f ~/.claude/tmux-limit-watcher.log
 Stop it:    launchctl unload "$PLIST"
 EOF
+fi
