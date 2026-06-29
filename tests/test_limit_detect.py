@@ -38,6 +38,12 @@ def tool_of(banner):
     return found[0] if found else None
 
 
+def reset_fragment_for(banner):
+    found = ld.find_limit_in_text(banner)
+    assert found, f"banner did not match any pattern: {banner!r}"
+    return found[1].group(1).strip()
+
+
 print("Claude Code — reset-time parsing:")
 check("session, later today", reset_for(
     "You've hit your session limit · resets 3:45pm"), "2026-06-26 15:45")
@@ -61,6 +67,28 @@ check("limit menu, relative reset", reset_for(menu), "2026-06-27 19:00")
 check("tool == claude", tool_of(
     "You've hit your session limit · resets 3:45pm"), "claude")
 check("menu tool == claude-menu", tool_of(menu), "claude-menu")
+claude_menu = (
+    "You've hit your session limit · resets 2:10pm (Europe/London)\n"
+    "What do you want to do?\n"
+    "❯ 1. Stop and wait for limit to reset\n"
+    "2. Upgrade your plan\n"
+    "3. Upgrade to Team plan"
+)
+check("tool == claude-menu", tool_of(claude_menu), "claude-menu")
+check("claude-menu reset parses", ld.parse_reset(
+    reset_fragment_for(claude_menu), dt.datetime(2026, 6, 26, 13, 40)
+).strftime("%Y-%m-%d %H:%M"), "2026-06-26 14:10")
+claude_after_agent = (
+    '⏺ Agent "Review Task 3 (spec + quality)" finished · 0s\n'
+    "You've hit your session limit · resets 2:10pm (Europe/London)\n"
+    "/upgrade to increase your usage limit.\n"
+    "✻ Baked for 16m 8s"
+)
+check("post-agent limit screen stays claude",
+      tool_of(claude_after_agent), "claude")
+check("post-agent reset parses", ld.parse_reset(
+    reset_fragment_for(claude_after_agent), dt.datetime(2026, 6, 26, 13, 40)
+).strftime("%Y-%m-%d %H:%M"), "2026-06-26 14:10")
 
 print("Codex — reset-time parsing:")
 check("usage limit, same day (space + caps PM)", reset_for(

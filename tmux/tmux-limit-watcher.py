@@ -157,9 +157,13 @@ def schedule_resume(pane_id: str, reset_at: dt.datetime, tool: str) -> None:
         f"{reset_at:%a %H:%M} (~{delay / 60:.0f} min){tag}")
     time.sleep(delay)
 
-    if limit_detect.find_limit_in_text(capture(pane_id)) is None:
+    found = limit_detect.find_limit_in_text(capture(pane_id))
+    if found is None:
         log(f"[{pane_id}] banner cleared before reset; skipping resume")
         return
+    if found[0] == "claude-menu":
+        confirm_claude_limit_menu(pane_id)
+        time.sleep(1)
     if DRY_RUN:
         log(f"[{pane_id}] ({tool}) [DRY-RUN] would send {RESUME_TEXT!r} now")
         return
@@ -211,13 +215,7 @@ def main() -> None:
                     continue
                 tool, match = found
                 if tool == "claude-menu":
-                    try:
-                        confirm_claude_limit_menu(pane_id)
-                    finally:
-                        with lock:
-                            pending.discard(pane_id)
-                            cooling.add(pane_id)
-                    continue
+                    confirm_claude_limit_menu(pane_id)
                 reset_at = limit_detect.parse_reset(
                     match.group(1).strip(), dt.datetime.now())
                 require_clear = True
